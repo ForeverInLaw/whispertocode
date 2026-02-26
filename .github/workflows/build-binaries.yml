@@ -1,0 +1,140 @@
+name: Build Binaries
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-native:
+    name: Native ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            target: windows-x64
+          - runner: macos-13
+            target: macos-x64
+          - runner: macos-14
+            target: macos-arm64
+          - runner: ubuntu-latest
+            target: linux-x64
+          - runner: ubuntu-24.04-arm
+            target: linux-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PortAudio (Linux)
+        if: startsWith(matrix.runner, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y portaudio19-dev
+
+      - name: Install PortAudio (macOS)
+        if: startsWith(matrix.runner, 'macos')
+        run: brew install portaudio
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Build
+        run: python build_binary.py
+
+      - name: Rename Artifact (Windows)
+        if: startsWith(matrix.runner, 'windows')
+        shell: pwsh
+        run: |
+          Copy-Item dist\riva-ptt.exe dist\riva-ptt-${{ matrix.target }}.exe -Force
+
+      - name: Rename Artifact (Unix)
+        if: ${{ !startsWith(matrix.runner, 'windows') }}
+        run: |
+          cp dist/riva-ptt dist/riva-ptt-${{ matrix.target }}
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: riva-ptt-${{ matrix.target }}
+          path: |
+            dist/riva-ptt-${{ matrix.target }}*
+
+  build-linux-distros:
+    name: Linux Distro ${{ matrix.distro }}-x64
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: ubuntu
+            image: ubuntu:24.04
+            bootstrap: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip python3-venv build-essential portaudio19-dev
+          - distro: debian
+            image: debian:12-slim
+            bootstrap: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip python3-venv build-essential portaudio19-dev
+          - distro: kali
+            image: kalilinux/kali-rolling
+            bootstrap: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip python3-venv build-essential portaudio19-dev
+          - distro: arch
+            image: archlinux:latest
+            bootstrap: pacman -Sy --noconfirm python python-pip base-devel portaudio
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build in ${{ matrix.image }}
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/work" -w /work ${{ matrix.image }} /bin/sh -lc "
+            set -e
+            ${{ matrix.bootstrap }}
+            python3 -m venv .venv-build
+            . .venv-build/bin/activate
+            pip install --upgrade pip
+            pip install -r requirements.txt -r requirements-build.txt
+            python build_binary.py
+            cp dist/riva-ptt dist/riva-ptt-${{ matrix.distro }}-x64
+          "
+
+      - name: Upload Distro Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: riva-ptt-${{ matrix.distro }}-x64
+          path: |
+            dist/riva-ptt-${{ matrix.distro }}-x64
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-native, build-linux-distros]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List Files
+        run: ls -laR artifacts
+
+      - name: Publish Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/riva-ptt*
+          generate_release_notes: true
