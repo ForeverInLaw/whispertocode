@@ -75,7 +75,6 @@ Build CI binaries (workflow):
 - use GitHub Actions workflow: `.github/workflows/build-binaries.yml`
 - Native multi-arch artifacts:
 - `windows-x64`
-- `macos-x64`
 - `macos-arm64`
 - `linux-x64`
 - `linux-arm64`
@@ -84,6 +83,7 @@ Build CI binaries (workflow):
 - `debian-x64`
 - `kali-x64`
 - `arch-x64`
+- `arch-x64` currently uses the `linux-x64` binary as an alias artifact for faster releases
 - push a tag like `v1.0.0` to auto-publish all artifacts to GitHub Release
 
 ## Controls
