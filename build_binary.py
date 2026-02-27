@@ -54,6 +54,8 @@ def main() -> int:
         "google.protobuf",
         "--collect-submodules",
         "pynput",
+        "--collect-submodules",
+        "openai",
         "--collect-data",
         "sounddevice",
         "--collect-data",

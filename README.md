@@ -3,6 +3,7 @@
 Cross-platform speech-to-text tool for Windows/Linux/macOS using NVIDIA Riva Whisper (`whisper-large-v3`):
 - hold `Ctrl` for at least `0.5s` -> microphone recording starts
 - release `Ctrl` -> audio is transcribed by Riva and typed into the currently focused input
+- default mode is `RAW`; optional `SMART` mode rewrites STT output via NVIDIA Nemotron
 - languages: Russian, English, Polish, German, Spanish (`--language auto`, `ru`, `en`, `pl`, `de`, `es`)
 
 ## Requirements
@@ -35,6 +36,15 @@ Create `.env` in project root:
 
 ```env
 NVIDIA_API_KEY=your_api_key_here
+# Optional SMART mode overrides:
+# NEMOTRON_BASE_URL=https://integrate.api.nvidia.com/v1
+# NEMOTRON_MODEL=nvidia/nemotron-3-nano-30b-a3b
+# NEMOTRON_TEMPERATURE=1
+# NEMOTRON_TOP_P=1
+# NEMOTRON_MAX_TOKENS=16384
+# NEMOTRON_REASONING_BUDGET=4096
+# NEMOTRON_REASONING_PRINT_LIMIT=600
+# NEMOTRON_ENABLE_THINKING=true
 ```
 
 If you run the built binary, place `.env` next to the binary file
@@ -56,7 +66,17 @@ python ptt_whisper.py --language pl
 python ptt_whisper.py --language de
 python ptt_whisper.py --language es
 python ptt_whisper.py --hold-delay 0.7
+python ptt_whisper.py --mode raw
+python ptt_whisper.py --mode smart
 ```
+
+## Modes
+
+- `RAW` (default): types recognized text directly.
+- `SMART`: sends recognized text to Nemotron and streams rewritten text for better readability.
+- SMART keeps the source language and applies light editing only.
+- SMART fallback (no streamed output yet): app logs error and types RAW text.
+- SMART fallback (partial streamed output already typed): app keeps partial text and logs error.
 
 ## Build Binaries
 
@@ -90,10 +110,13 @@ Build CI binaries (workflow):
 
 - `Ctrl` (hold >= 0.5s): record
 - `Ctrl` (release): transcribe and type text
-- `Esc` or `Ctrl+C`: exit
+- `Left` / `Right`: switch mode (`RAW` / `SMART`) when app window is focused
+- `Esc`: exit when app window is focused (Windows)
+- `Ctrl+C`: exit
 
 ## Notes
 
 - On macOS, grant Accessibility permissions to the terminal/Python app to allow global keyboard listening/typing.
 - Typing happens in the currently focused window (chat, terminal, editor, etc.).
 - Riva endpoint and function id for `whisper-large-v3` are preconfigured in code.
+- Nemotron reasoning stream is printed to console; only final content stream is typed.
