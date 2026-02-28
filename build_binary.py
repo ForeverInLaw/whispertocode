@@ -56,12 +56,38 @@ def main() -> int:
         "pynput",
         "--collect-submodules",
         "openai",
+        "--collect-submodules",
+        "pystray",
+        "--collect-submodules",
+        "PIL",
+        "--hidden-import",
+        "PySide6.QtCore",
+        "--hidden-import",
+        "PySide6.QtGui",
+        "--hidden-import",
+        "PySide6.QtWidgets",
+        "--exclude-module",
+        "PySide6.QtWebEngineCore",
+        "--exclude-module",
+        "PySide6.QtWebEngineWidgets",
+        "--exclude-module",
+        "PySide6.QtQml",
+        "--exclude-module",
+        "PySide6.QtQuick",
+        "--exclude-module",
+        "matplotlib",
+        "--exclude-module",
+        "IPython",
+        "--exclude-module",
+        "jupyter",
         "--collect-data",
         "sounddevice",
         "--collect-data",
         "certifi",
         "ptt_whisper.py",
     ]
+    if os.name == "nt":
+        cmd.insert(5, "--noconsole")
 
     print("Building binary with PyInstaller...")
     print(" ".join(cmd))

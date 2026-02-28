@@ -4,6 +4,8 @@ Cross-platform speech-to-text tool for Windows/Linux/macOS using NVIDIA Riva Whi
 - hold `Ctrl` for at least `0.5s` -> microphone recording starts
 - release `Ctrl` -> audio is transcribed by Riva and typed into the currently focused input
 - default mode is `RAW`; optional `SMART` mode rewrites STT output via NVIDIA Nemotron
+- app runs in system tray by default (mode switching and exit are available from tray icon)
+- during active recording a floating `150x100` overlay capsule shows realtime input EQ + current mode
 - languages: Russian, English, Polish, German, Spanish (`--language auto`, `ru`, `en`, `pl`, `de`, `es`)
 
 ## Requirements
@@ -68,6 +70,8 @@ python ptt_whisper.py --language es
 python ptt_whisper.py --hold-delay 0.7
 python ptt_whisper.py --mode raw
 python ptt_whisper.py --mode smart
+python ptt_whisper.py --no-tray
+python ptt_whisper.py --debug-console
 ```
 
 ## Modes
@@ -110,9 +114,16 @@ Build CI binaries (workflow):
 
 - `Ctrl` (hold >= 0.5s): record
 - `Ctrl` (release): transcribe and type text
-- `Left` / `Right`: switch mode (`RAW` / `SMART`) when app window is focused
-- `Esc`: exit when app window is focused (Windows)
-- `Ctrl+C`: exit
+- Tray icon menu (default):
+  - switch mode (`RAW` / `SMART`)
+  - show/hide debug console (Windows)
+  - exit app
+- Overlay capsule:
+  - appears only when recording actually starts (after hold delay)
+  - hides immediately when recording stops
+  - always-on-top, top-center, click-through
+- `--no-tray`: fallback to console controls (`Left`/`Right` switch mode, `Esc` exits on Windows)
+- `Ctrl+C`: exit (console/no-tray mode)
 
 ## Notes
 
