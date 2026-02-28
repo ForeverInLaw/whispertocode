@@ -87,6 +87,9 @@ def _install_dependency_stubs() -> None:
             ctrl = "ctrl"
             ctrl_l = "ctrl_l"
             ctrl_r = "ctrl_r"
+            shift = "shift"
+            shift_l = "shift_l"
+            shift_r = "shift_r"
             left = "left"
             right = "right"
 
@@ -163,6 +166,14 @@ class ModesAndFallbackTests(unittest.TestCase):
             any("Local hotkeys:" in line and "enabled in this console window" in line for line in lines)
         )
 
+    def test_startup_banner_mentions_shift_for_recording(self):
+        app = _make_app()
+        app.hold_delay_sec = 0.5
+        app._tray_enabled = False
+        with mock.patch("ptt_whisper.os.name", "nt"):
+            lines = app._startup_banner_lines()
+        self.assertIn("Hold Shift for at least 0.5s to record, release Shift to transcribe and type.", lines)
+
     def test_startup_banner_non_windows_reports_unavailable_hotkeys(self):
         app = _make_app()
         app.hold_delay_sec = 0.5
@@ -170,6 +181,20 @@ class ModesAndFallbackTests(unittest.TestCase):
         with mock.patch("ptt_whisper.os.name", "posix"):
             lines = app._startup_banner_lines()
         self.assertTrue(any("Local hotkeys: unavailable on this OS" in line for line in lines))
+
+    def test_shift_press_starts_hold_timer(self):
+        app = _make_app()
+        app.hold_delay_sec = 0.5
+        app._ctrl_count = 0
+        app._press_token = 0
+        app._hold_timer = None
+        timer = mock.Mock()
+        with mock.patch("ptt_whisper.threading.Timer", return_value=timer):
+            app._on_press(ptt_whisper.keyboard.Key.shift)
+        self.assertEqual(app._ctrl_count, 1)
+        self.assertEqual(app._press_token, 1)
+        self.assertIs(app._hold_timer, timer)
+        timer.start.assert_called_once()
 
     def test_startup_banner_in_tray_mode_mentions_tray_controls(self):
         app = _make_app()
@@ -321,6 +346,31 @@ class ModesAndFallbackTests(unittest.TestCase):
         ):
             code = ptt_whisper.main()
         self.assertEqual(code, 1)
+
+
+class OverlayPlacementTests(unittest.TestCase):
+    def test_capsule_places_bottom_center(self):
+        geometry = types.SimpleNamespace(
+            x=lambda: 100,
+            y=lambda: 50,
+            width=lambda: 800,
+            height=lambda: 600,
+        )
+        screen = types.SimpleNamespace(availableGeometry=lambda: geometry)
+        qt_gui = types.SimpleNamespace(
+            QGuiApplication=types.SimpleNamespace(primaryScreen=lambda: screen)
+        )
+        widget = mock.Mock()
+        widget.width.return_value = 150
+        widget.height.return_value = 100
+
+        overlay = object.__new__(ptt_whisper._CapsuleOverlayWidget)
+        overlay._qt_gui = qt_gui
+        overlay._widget = widget
+
+        overlay._place_bottom_center()
+
+        widget.move.assert_called_once_with(425, 530)
 
 
 if __name__ == "__main__":

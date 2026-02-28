@@ -1,8 +1,8 @@
-# Riva Push-to-Talk (Ctrl hold)
+# Riva Push-to-Talk (Shift hold)
 
 Cross-platform speech-to-text tool for Windows/Linux/macOS using NVIDIA Riva Whisper (`whisper-large-v3`):
-- hold `Ctrl` for at least `0.5s` -> microphone recording starts
-- release `Ctrl` -> audio is transcribed by Riva and typed into the currently focused input
+- hold `Shift` for at least `0.5s` -> microphone recording starts
+- release `Shift` -> audio is transcribed by Riva and typed into the currently focused input
 - default mode is `RAW`; optional `SMART` mode rewrites STT output via NVIDIA Nemotron
 - app runs in system tray by default (mode switching and exit are available from tray icon)
 - during active recording a floating `150x100` overlay capsule shows realtime input EQ + current mode
@@ -112,8 +112,8 @@ Build CI binaries (workflow):
 
 ## Controls
 
-- `Ctrl` (hold >= 0.5s): record
-- `Ctrl` (release): transcribe and type text
+- `Shift` (hold >= 0.5s): record
+- `Shift` (release): transcribe and type text
 - Tray icon menu (default):
   - switch mode (`RAW` / `SMART`)
   - show/hide debug console (Windows)
@@ -121,7 +121,7 @@ Build CI binaries (workflow):
 - Overlay capsule:
   - appears only when recording actually starts (after hold delay)
   - hides immediately when recording stops
-  - always-on-top, top-center, click-through
+  - always-on-top, bottom-center, click-through
 - `--no-tray`: fallback to console controls (`Left`/`Right` switch mode, `Esc` exits on Windows)
 - `Ctrl+C`: exit (console/no-tray mode)
 

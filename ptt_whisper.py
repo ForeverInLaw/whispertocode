@@ -91,7 +91,7 @@ class _CapsuleOverlayWidget:
         self._last_tick = time.monotonic()
         self._paint_hook = self._build_paint_hook()
         self._widget.paintEvent = self._paint_hook  # type: ignore[assignment]
-        self._place_top_center()
+        self._place_bottom_center()
 
     def _build_paint_hook(self):
         qt_gui = self._qt_gui
@@ -151,18 +151,18 @@ class _CapsuleOverlayWidget:
 
         return _paint
 
-    def _place_top_center(self) -> None:
+    def _place_bottom_center(self) -> None:
         screen = self._qt_gui.QGuiApplication.primaryScreen()
         if screen is None:
             return
         geometry = screen.availableGeometry()
         x = geometry.x() + int((geometry.width() - self._widget.width()) / 2)
-        y = geometry.y() + 20
+        y = geometry.y() + geometry.height() - self._widget.height() - 20
         self._widget.move(x, y)
 
     def show_recording(self, mode: str) -> None:
         self.set_mode(mode)
-        self._place_top_center()
+        self._place_bottom_center()
         self._widget.show()
         self._widget.raise_()
         self._widget.update()
@@ -752,7 +752,7 @@ class HoldToTalkRiva:
             )
             self._stream.start()
             self._show_overlay_recording()
-            print("Recording... (hold Ctrl)")
+            print("Recording... (hold Shift)")
         except Exception as exc:
             with self._lock:
                 self._recording = False
@@ -951,11 +951,11 @@ class HoldToTalkRiva:
                 print("[reasoning truncated]", file=sys.stderr)
 
     @staticmethod
-    def _is_ctrl_key(key: keyboard.KeyCode) -> bool:
-        return key in (keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r)
+    def _is_shift_key(key: keyboard.KeyCode) -> bool:
+        return key in (keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r)
 
     def _on_press(self, key) -> Optional[bool]:
-        if self._is_ctrl_key(key):
+        if self._is_shift_key(key):
             timer_to_start: Optional[threading.Timer] = None
             with self._lock:
                 self._ctrl_count += 1
@@ -972,7 +972,7 @@ class HoldToTalkRiva:
         return None
 
     def _on_release(self, key) -> Optional[bool]:
-        if self._is_ctrl_key(key):
+        if self._is_shift_key(key):
             timer_to_cancel: Optional[threading.Timer] = None
             should_stop = False
             with self._lock:
@@ -1014,8 +1014,8 @@ class HoldToTalkRiva:
     def _startup_banner_lines(self) -> List[str]:
         lines = [
             (
-                f"Hold Ctrl for at least {self.hold_delay_sec:.1f}s to record, "
-                "release Ctrl to transcribe and type."
+                f"Hold Shift for at least {self.hold_delay_sec:.1f}s to record, "
+                "release Shift to transcribe and type."
             ),
             f"Current mode: {self._get_output_mode().upper()}",
         ]
@@ -1074,7 +1074,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Push-to-talk speech-to-text with NVIDIA Riva Whisper. "
-            "Hold Ctrl to capture audio, release Ctrl to type text."
+            "Hold Shift to capture audio, release Shift to type text."
         )
     )
     parser.add_argument(
@@ -1093,7 +1093,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--hold-delay",
         type=float,
         default=0.5,
-        help="How long Ctrl must be held before recording starts (seconds)",
+        help="How long Shift must be held before recording starts (seconds)",
     )
     parser.add_argument(
         "--mode",
