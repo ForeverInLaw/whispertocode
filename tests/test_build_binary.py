@@ -37,6 +37,7 @@ class BuildBinaryTests(unittest.TestCase):
         cmd = mock_run.call_args.kwargs.get("args", mock_run.call_args.args[0])
         self.assertIn("--noconsole", cmd)
         self.assertIn("PySide6.QtCore", cmd)
+        self.assertEqual(cmd[-1], "run_whispertocode.py")
 
 
 if __name__ == "__main__":

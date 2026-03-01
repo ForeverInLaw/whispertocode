@@ -55,23 +55,23 @@ If you run the built binary, place `.env` next to the binary file
 ## Run
 
 ```bash
-python ptt_whisper.py
+python -m whispertocode
 ```
 
 Useful options:
 
 ```bash
-python ptt_whisper.py --language auto
-python ptt_whisper.py --language ru
-python ptt_whisper.py --language en
-python ptt_whisper.py --language pl
-python ptt_whisper.py --language de
-python ptt_whisper.py --language es
-python ptt_whisper.py --hold-delay 0.7
-python ptt_whisper.py --mode raw
-python ptt_whisper.py --mode smart
-python ptt_whisper.py --no-tray
-python ptt_whisper.py --debug-console
+python -m whispertocode --language auto
+python -m whispertocode --language ru
+python -m whispertocode --language en
+python -m whispertocode --language pl
+python -m whispertocode --language de
+python -m whispertocode --language es
+python -m whispertocode --hold-delay 0.7
+python -m whispertocode --mode raw
+python -m whispertocode --mode smart
+python -m whispertocode --no-tray
+python -m whispertocode --debug-console
 ```
 
 ## Modes

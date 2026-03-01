@@ -47,7 +47,7 @@ def _install_dependency_stubs() -> None:
 
 
 _install_dependency_stubs()
-ptt_whisper = importlib.import_module("ptt_whisper")
+ptt_whisper = importlib.import_module("whispertocode.app")
 
 
 def _make_app() -> "ptt_whisper.HoldToTalkRiva":
@@ -69,9 +69,10 @@ class PromptAndStreamTests(unittest.TestCase):
         app = _make_app()
         messages = app._build_smart_messages("пример")
         self.assertEqual(len(messages), 2)
-        self.assertEqual(messages[1]["content"], "пример")
-        self.assertIn("same language", messages[0]["content"])
-        self.assertIn("do not add new information", messages[0]["content"].lower())
+        self.assertEqual(messages[1]["content"], "<transcript>\nпример\n</transcript>")
+        self.assertIn("exact original language", messages[0]["content"])
+        self.assertIn("do not add any new information", messages[0]["content"].lower())
+        self.assertIn("return only the final corrected text", messages[0]["content"].lower())
 
     def test_reasoning_budget_is_capped(self):
         app = _make_app()
@@ -133,6 +134,31 @@ class PromptAndStreamTests(unittest.TestCase):
         typed_text = "".join(call.args[0] for call in app._keyboard.type.call_args_list)
         self.assertEqual(typed_text, "hello world")
         self.assertTrue(any(call.args and call.args[0] == "think " for call in print_mock.call_args_list))
+
+    def test_stream_does_not_truncate_reasoning_output(self):
+        app = _make_app()
+        app._reasoning_print_limit = 1
+
+        chunk = types.SimpleNamespace(
+            choices=[
+                types.SimpleNamespace(
+                    delta=types.SimpleNamespace(reasoning_content="very long reasoning", content=None)
+                )
+            ]
+        )
+        completions = mock.Mock()
+        completions.create.return_value = [chunk]
+        fake_client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=completions))
+        app._get_nemotron_client = mock.Mock(return_value=fake_client)
+
+        with mock.patch("builtins.print") as print_mock:
+            typed_any, error = app._rewrite_text_streaming("raw input")
+
+        self.assertFalse(typed_any)
+        self.assertIsNone(error)
+        printed_values = [call.args[0] for call in print_mock.call_args_list if call.args]
+        self.assertIn("very long reasoning", printed_values)
+        self.assertNotIn("[reasoning truncated]", printed_values)
 
 
 if __name__ == "__main__":

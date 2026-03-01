@@ -103,7 +103,9 @@ def _install_dependency_stubs() -> None:
 
 
 _install_dependency_stubs()
-ptt_whisper = importlib.import_module("ptt_whisper")
+ptt_whisper = importlib.import_module("whispertocode.app")
+cli_module = importlib.import_module("whispertocode.cli")
+overlay_module = importlib.import_module("whispertocode.overlay")
 
 
 def _make_app() -> "ptt_whisper.HoldToTalkRiva":
@@ -119,20 +121,20 @@ def _make_app() -> "ptt_whisper.HoldToTalkRiva":
 
 class ModesAndFallbackTests(unittest.TestCase):
     def test_parse_args_default_mode_is_raw(self):
-        args = ptt_whisper.parse_args([])
+        args = cli_module.parse_args([])
         self.assertEqual(args.mode, ptt_whisper.OUTPUT_MODE_RAW)
 
     def test_parse_args_accepts_smart_mode(self):
-        args = ptt_whisper.parse_args(["--mode", ptt_whisper.OUTPUT_MODE_SMART])
+        args = cli_module.parse_args(["--mode", ptt_whisper.OUTPUT_MODE_SMART])
         self.assertEqual(args.mode, ptt_whisper.OUTPUT_MODE_SMART)
 
     def test_parse_args_defaults_to_tray_without_debug_console(self):
-        args = ptt_whisper.parse_args([])
+        args = cli_module.parse_args([])
         self.assertFalse(args.no_tray)
         self.assertFalse(args.debug_console)
 
     def test_parse_args_can_disable_tray_and_enable_debug_console(self):
-        args = ptt_whisper.parse_args(["--no-tray", "--debug-console"])
+        args = cli_module.parse_args(["--no-tray", "--debug-console"])
         self.assertTrue(args.no_tray)
         self.assertTrue(args.debug_console)
 
@@ -161,7 +163,7 @@ class ModesAndFallbackTests(unittest.TestCase):
     def test_startup_banner_windows_mentions_local_hotkeys(self):
         app = _make_app()
         app.hold_delay_sec = 0.5
-        with mock.patch("ptt_whisper.os.name", "nt"):
+        with mock.patch("whispertocode.app.os.name", "nt"):
             lines = app._startup_banner_lines()
         self.assertIn("Current mode: RAW", lines)
         self.assertTrue(
@@ -172,7 +174,7 @@ class ModesAndFallbackTests(unittest.TestCase):
         app = _make_app()
         app.hold_delay_sec = 0.5
         app._tray_enabled = False
-        with mock.patch("ptt_whisper.os.name", "nt"):
+        with mock.patch("whispertocode.app.os.name", "nt"):
             lines = app._startup_banner_lines()
         self.assertIn("Hold Shift for at least 0.5s to record, release Shift to transcribe and type.", lines)
 
@@ -180,7 +182,7 @@ class ModesAndFallbackTests(unittest.TestCase):
         app = _make_app()
         app.hold_delay_sec = 0.5
         app._tray_enabled = False
-        with mock.patch("ptt_whisper.os.name", "posix"):
+        with mock.patch("whispertocode.app.os.name", "posix"):
             lines = app._startup_banner_lines()
         self.assertTrue(any("Local hotkeys: unavailable on this OS" in line for line in lines))
 
@@ -191,7 +193,7 @@ class ModesAndFallbackTests(unittest.TestCase):
         app._press_token = 0
         app._hold_timer = None
         timer = mock.Mock()
-        with mock.patch("ptt_whisper.threading.Timer", return_value=timer):
+        with mock.patch("whispertocode.app.threading.Timer", return_value=timer):
             app._on_press(ptt_whisper.keyboard.Key.shift)
         self.assertEqual(app._ctrl_count, 1)
         self.assertEqual(app._press_token, 1)
@@ -242,7 +244,7 @@ class ModesAndFallbackTests(unittest.TestCase):
         app.sample_rate = 16000
         stream = mock.Mock()
         with (
-            mock.patch("ptt_whisper.sd.InputStream", return_value=stream),
+            mock.patch("whispertocode.app.sd.InputStream", return_value=stream),
             mock.patch("builtins.print"),
         ):
             app._start_recording()
@@ -300,7 +302,8 @@ class ModesAndFallbackTests(unittest.TestCase):
         )
 
         with (
-            mock.patch("ptt_whisper.os.name", "nt"),
+            mock.patch("whispertocode.app.os.name", "nt"),
+            mock.patch("whispertocode.tray_support.os.name", "nt"),
             mock.patch.dict(importlib.sys.modules, {"ctypes": fake_ctypes}),
             mock.patch("builtins.print"),
         ):
@@ -341,12 +344,12 @@ class ModesAndFallbackTests(unittest.TestCase):
         app = mock.Mock()
         app.run.side_effect = RuntimeError("overlay failed")
         with (
-            mock.patch("ptt_whisper.parse_args", return_value=args),
-            mock.patch("ptt_whisper.HoldToTalkRiva", return_value=app),
-            mock.patch("ptt_whisper.signal.signal"),
+            mock.patch("whispertocode.cli.parse_args", return_value=args),
+            mock.patch("whispertocode.cli.HoldToTalkRiva", return_value=app),
+            mock.patch("whispertocode.cli.signal.signal"),
             mock.patch("builtins.print"),
         ):
-            code = ptt_whisper.main()
+            code = cli_module.main()
         self.assertEqual(code, 1)
 
 
@@ -366,7 +369,7 @@ class OverlayPlacementTests(unittest.TestCase):
         widget.width.return_value = 150
         widget.height.return_value = 100
 
-        overlay = object.__new__(ptt_whisper._CapsuleOverlayWidget)
+        overlay = object.__new__(overlay_module._CapsuleOverlayWidget)
         overlay._qt_gui = qt_gui
         overlay._widget = widget
         overlay._target_opacity = 1.0

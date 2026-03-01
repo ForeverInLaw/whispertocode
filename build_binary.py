@@ -84,7 +84,7 @@ def main() -> int:
         "sounddevice",
         "--collect-data",
         "certifi",
-        "ptt_whisper.py",
+        "run_whispertocode.py",
     ]
     if os.name == "nt":
         cmd.insert(5, "--noconsole")
