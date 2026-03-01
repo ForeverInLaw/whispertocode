@@ -4,9 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - "**"
-    tags:
-      - "v*"
+      - "main"
 
 permissions:
   contents: write
@@ -139,9 +137,20 @@ jobs:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
     needs: [build-native, build-linux-distros, build-arch-alias]
-    if: startsWith(github.ref, 'refs/tags/v')
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump version and push tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: patch
+
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -153,6 +162,8 @@ jobs:
       - name: Publish Release Assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag_version.outputs.new_tag }}
+          name: Release ${{ steps.tag_version.outputs.new_tag }}
           files: |
             artifacts/**/riva-ptt*
           generate_release_notes: true
