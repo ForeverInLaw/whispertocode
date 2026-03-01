@@ -112,6 +112,8 @@ def _make_app() -> "ptt_whisper.HoldToTalkRiva":
     app = object.__new__(ptt_whisper.HoldToTalkRiva)
     app._lock = threading.Lock()
     app._stop_event = threading.Event()
+    app._settings_request_event = threading.Event()
+    app._settings_request_source = ""
     app._output_mode = ptt_whisper.OUTPUT_MODE_RAW
     app._keyboard = mock.Mock()
     app._peak_level = 0.05
@@ -216,6 +218,36 @@ class ModesAndFallbackTests(unittest.TestCase):
         app._set_console_visibility.reset_mock()
         app._handle_tray_hide_console(None, None)
         app._set_console_visibility.assert_called_once_with(False, "tray")
+
+    def test_tray_settings_delegates_to_settings_request(self):
+        app = _make_app()
+        app._request_open_settings = mock.Mock()
+        app._handle_tray_open_settings(None, None)
+        app._request_open_settings.assert_called_once_with("tray")
+
+    def test_process_pending_settings_request_uses_overlay_qt_thread(self):
+        app = _make_app()
+        app._settings_request_event.set()
+        app._settings_request_source = "tray"
+        app._overlay_controller = mock.Mock()
+        app._notify_tray_unavailable = mock.Mock()
+
+        updated_settings = types.SimpleNamespace()
+        app._overlay_controller.run_onboarding_dialog.return_value = updated_settings
+        with (
+            mock.patch("whispertocode.app.load_config_json", return_value={}),
+            mock.patch("whispertocode.app.load_env_fallback", return_value={}),
+            mock.patch("whispertocode.app.resolve_settings", return_value=types.SimpleNamespace()),
+            mock.patch("whispertocode.app.run_onboarding") as run_onboarding_mock,
+            mock.patch("whispertocode.app.save_config_json") as save_mock,
+            mock.patch("builtins.print"),
+        ):
+            app._process_pending_settings_request()
+
+        run_onboarding_mock.assert_not_called()
+        app._overlay_controller.run_onboarding_dialog.assert_called_once()
+        save_mock.assert_called_once_with(updated_settings)
+        app._notify_tray_unavailable.assert_called_once()
 
     def test_set_output_mode_updates_overlay_mode(self):
         app = _make_app()
@@ -374,11 +406,34 @@ class ModesAndFallbackTests(unittest.TestCase):
             mode=ptt_whisper.OUTPUT_MODE_RAW,
             no_tray=False,
             debug_console=False,
+            onboarding=False,
         )
         app = mock.Mock()
         app.run.side_effect = RuntimeError("overlay failed")
         with (
             mock.patch("whispertocode.cli.parse_args", return_value=args),
+            mock.patch(
+                "whispertocode.cli.get_config_path",
+                return_value=types.SimpleNamespace(exists=lambda: True),
+            ),
+            mock.patch(
+                "whispertocode.cli.resolve_settings",
+                return_value=types.SimpleNamespace(
+                    nvidia_api_key="key",
+                    riva_server="grpc.nvcf.nvidia.com:443",
+                    riva_function_id="b702f636-f60c-4a3d-a6f4-f3568c13bd7d",
+                    nemotron_base_url="https://integrate.api.nvidia.com/v1",
+                    nemotron_model="nvidia/nemotron-3-nano-30b-a3b",
+                    nemotron_temperature=1.0,
+                    nemotron_top_p=1.0,
+                    nemotron_max_tokens=16384,
+                    nemotron_reasoning_budget=4096,
+                    nemotron_reasoning_print_limit=600,
+                    nemotron_enable_thinking=True,
+                ),
+            ),
+            mock.patch("whispertocode.cli.load_config_json", return_value={}),
+            mock.patch("whispertocode.cli.load_env_fallback", return_value={}),
             mock.patch("whispertocode.cli.HoldToTalkRiva", return_value=app),
             mock.patch("whispertocode.cli.signal.signal"),
             mock.patch("builtins.print"),

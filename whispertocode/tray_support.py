@@ -90,6 +90,10 @@ def handle_tray_hide_console(app, _icon, _item) -> None:
     app._set_console_visibility(False, "tray")
 
 
+def handle_tray_open_settings(app, _icon, _item) -> None:
+    app._request_open_settings("tray")
+
+
 def handle_tray_exit(app, _icon, _item) -> None:
     app.request_shutdown("Tray")
 
@@ -141,6 +145,12 @@ def build_tray_menu(app, pystray):
     menu_items.extend(
         [
             pystray.Menu.SEPARATOR,
+            menu_item("Settings...", app._handle_tray_open_settings),
+        ]
+    )
+    menu_items.extend(
+        [
+            pystray.Menu.SEPARATOR,
             menu_item("Exit", app._handle_tray_exit),
         ]
     )
@@ -148,6 +158,10 @@ def build_tray_menu(app, pystray):
 
 
 def notify_tray_unavailable(message: str) -> None:
+    notify_windows_message(message)
+
+
+def notify_windows_message(message: str) -> None:
     if os.name != "nt":
         return
     try:

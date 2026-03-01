@@ -44,6 +44,7 @@ def run_app(app, *, keyboard_module, threading_module, time_module, os_module) -
     try:
         listener.start()
         while not app._stop_event.is_set():
+            app._process_pending_settings_request()
             time_module.sleep(0.05)
     except KeyboardInterrupt:
         app.request_shutdown("Ctrl+C")

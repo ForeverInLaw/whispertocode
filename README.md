@@ -12,7 +12,7 @@ Cross-platform speech-to-text tool for Windows/Linux/macOS using NVIDIA Riva Whi
 
 - Python 3.10+
 - Working microphone
-- NVIDIA API key (`NVIDIA_API_KEY`)
+- NVIDIA API key (entered in first-run onboarding UI)
 
 ## Install
 
@@ -34,23 +34,19 @@ pip install -r requirements.txt
 
 If `sounddevice` install fails on Linux, install PortAudio first (`portaudio19-dev` or equivalent package for your distro).
 
-Create `.env` in project root:
+## First-run setup
 
-```env
-NVIDIA_API_KEY=your_api_key_here
-# Optional SMART mode overrides:
-# NEMOTRON_BASE_URL=https://integrate.api.nvidia.com/v1
-# NEMOTRON_MODEL=nvidia/nemotron-3-nano-30b-a3b
-# NEMOTRON_TEMPERATURE=1
-# NEMOTRON_TOP_P=1
-# NEMOTRON_MAX_TOKENS=16384
-# NEMOTRON_REASONING_BUDGET=4096
-# NEMOTRON_REASONING_PRINT_LIMIT=600
-# NEMOTRON_ENABLE_THINKING=true
-```
+On first launch, if no key is configured, the app opens a UI onboarding wizard:
+- Step 1: enter `NVIDIA_API_KEY`
+- Step 2+: optionally customize Riva/Nemotron endpoints and model settings
+- Settings are saved to a JSON config file in OS app config directory.
 
-If you run the built binary, place `.env` next to the binary file
-(`riva-ptt`, `riva-ptt.exe`, or release artifact variants).
+Config file location:
+- Windows: `%APPDATA%\WhisperToCode\config.json`
+- macOS: `~/Library/Application Support/WhisperToCode/config.json`
+- Linux: `${XDG_CONFIG_HOME:-~/.config}/whispertocode/config.json`
+
+Environment variables are still supported as fallback/migration source, but `.env` next to binary is no longer required.
 
 ## Run
 
@@ -72,6 +68,7 @@ python -m whispertocode --mode raw
 python -m whispertocode --mode smart
 python -m whispertocode --no-tray
 python -m whispertocode --debug-console
+python -m whispertocode --onboarding
 ```
 
 ## Modes
@@ -116,6 +113,7 @@ Build CI binaries (workflow):
 - `Shift` (release): transcribe and type text
 - Tray icon menu (default):
   - switch mode (`RAW` / `SMART`)
+  - open `Settings...` onboarding to edit key/endpoints/models
   - show/hide debug console (Windows)
   - exit app
 - Overlay capsule:

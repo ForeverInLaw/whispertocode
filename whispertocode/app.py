@@ -7,13 +7,11 @@ from typing import List, Optional, Tuple
 import numpy as np
 import riva.client
 import sounddevice as sd
-from dotenv import load_dotenv
 from pynput import keyboard
 
+from .config_store import AppSettings, load_config_json, load_env_fallback, resolve_settings, save_config_json
 from .constants import (
-    NEMOTRON_REASONING_BUDGET_DEFAULT,
     NEMOTRON_REASONING_BUDGET_MAX,
-    NEMOTRON_REASONING_PRINT_LIMIT_DEFAULT,
     NEMOTRON_REASONING_PRINT_LIMIT_MAX,
     OUTPUT_MODE_RAW,
     OUTPUT_MODE_SMART,
@@ -35,11 +33,13 @@ from .overlay import QtCapsuleOverlayController
 from .riva_asr import recognize_audio
 from .runtime_support import run_app, startup_banner_lines
 from .smart import build_smart_messages, ensure_nemotron_client, rewrite_text_streaming
+from .onboarding import run_onboarding
 from .tray_support import (
     build_tray_icon_image,
     build_tray_menu,
     handle_tray_exit,
     handle_tray_hide_console,
+    handle_tray_open_settings,
     handle_tray_set_mode_raw,
     handle_tray_set_mode_smart,
     handle_tray_show_console,
@@ -54,7 +54,6 @@ from .tray_support import (
     stop_tray,
     tray_title,
 )
-from .utils import _parse_bool_env
 
 class HoldToTalkRiva:
     def __init__(
@@ -65,16 +64,17 @@ class HoldToTalkRiva:
         output_mode: str,
         enable_tray: bool,
         debug_console: bool,
+        settings: AppSettings,
     ) -> None:
-        load_dotenv()
-
-        api_key = os.getenv("NVIDIA_API_KEY", "").strip()
+        api_key = settings.nvidia_api_key.strip()
         if not api_key:
-            raise RuntimeError("NVIDIA_API_KEY is not set. Put it in .env file.")
+            raise RuntimeError(
+                "NVIDIA_API_KEY is not configured. Run with --onboarding to set it."
+            )
         self._api_key = api_key
 
-        self.server = "grpc.nvcf.nvidia.com:443"
-        self.function_id = "b702f636-f60c-4a3d-a6f4-f3568c13bd7d"
+        self.server = settings.riva_server
+        self.function_id = settings.riva_function_id
         self.sample_rate = sample_rate
         self.language = "multi" if language == "auto" else language
         self.hold_delay_sec = hold_delay_sec
@@ -116,20 +116,14 @@ class HoldToTalkRiva:
         self._overlay_controller = None
         self._console_visible = self._has_console_window()
         self._nemotron_client = None
-        self._nemotron_base_url = (
-            os.getenv("NEMOTRON_BASE_URL", "https://integrate.api.nvidia.com/v1").strip()
-            or "https://integrate.api.nvidia.com/v1"
-        )
-        self._nemotron_model = (
-            os.getenv("NEMOTRON_MODEL", "nvidia/nemotron-3-nano-30b-a3b").strip()
-            or "nvidia/nemotron-3-nano-30b-a3b"
-        )
-        self._nemotron_temperature = self._read_float_env("NEMOTRON_TEMPERATURE", 1.0)
-        self._nemotron_top_p = self._read_float_env("NEMOTRON_TOP_P", 1.0)
-        self._nemotron_max_tokens = self._read_int_env("NEMOTRON_MAX_TOKENS", 16384)
-        raw_reasoning_budget = self._read_int_env(
-            "NEMOTRON_REASONING_BUDGET", NEMOTRON_REASONING_BUDGET_DEFAULT
-        )
+        self._settings_request_event = threading.Event()
+        self._settings_request_source = ""
+        self._nemotron_base_url = settings.nemotron_base_url.strip()
+        self._nemotron_model = settings.nemotron_model.strip()
+        self._nemotron_temperature = float(settings.nemotron_temperature)
+        self._nemotron_top_p = float(settings.nemotron_top_p)
+        self._nemotron_max_tokens = int(settings.nemotron_max_tokens)
+        raw_reasoning_budget = int(settings.nemotron_reasoning_budget)
         self._nemotron_reasoning_budget = max(
             0,
             min(raw_reasoning_budget, NEMOTRON_REASONING_BUDGET_MAX),
@@ -142,15 +136,12 @@ class HoldToTalkRiva:
                 ),
                 file=sys.stderr,
             )
-        raw_reasoning_print_limit = self._read_int_env(
-            "NEMOTRON_REASONING_PRINT_LIMIT",
-            NEMOTRON_REASONING_PRINT_LIMIT_DEFAULT,
-        )
+        raw_reasoning_print_limit = int(settings.nemotron_reasoning_print_limit)
         self._reasoning_print_limit = max(
             0,
             min(raw_reasoning_print_limit, NEMOTRON_REASONING_PRINT_LIMIT_MAX),
         )
-        self._nemotron_enable_thinking = _parse_bool_env("NEMOTRON_ENABLE_THINKING", True)
+        self._nemotron_enable_thinking = bool(settings.nemotron_enable_thinking)
 
     @staticmethod
     def _normalize_output_mode(mode: str) -> str:
@@ -158,28 +149,6 @@ class HoldToTalkRiva:
         if normalized == OUTPUT_MODE_SMART:
             return OUTPUT_MODE_SMART
         return OUTPUT_MODE_RAW
-
-    @staticmethod
-    def _read_int_env(name: str, default: int) -> int:
-        raw = os.getenv(name)
-        if raw is None:
-            return default
-        try:
-            return int(raw.strip())
-        except ValueError:
-            print(f"Invalid {name}='{raw}', using default {default}.", file=sys.stderr)
-            return default
-
-    @staticmethod
-    def _read_float_env(name: str, default: float) -> float:
-        raw = os.getenv(name)
-        if raw is None:
-            return default
-        try:
-            return float(raw.strip())
-        except ValueError:
-            print(f"Invalid {name}='{raw}', using default {default}.", file=sys.stderr)
-            return default
 
     def _get_output_mode(self) -> str:
         with self._lock:
@@ -301,6 +270,42 @@ class HoldToTalkRiva:
 
     def _handle_tray_hide_console(self, icon, item) -> None:
         handle_tray_hide_console(self, icon, item)
+
+    def _handle_tray_open_settings(self, icon, item) -> None:
+        handle_tray_open_settings(self, icon, item)
+
+    def _request_open_settings(self, source: str = "") -> None:
+        with self._lock:
+            self._settings_request_source = source or ""
+        self._settings_request_event.set()
+
+    def _process_pending_settings_request(self) -> None:
+        if not self._settings_request_event.is_set():
+            return
+        self._settings_request_event.clear()
+        with self._lock:
+            source = self._settings_request_source
+            self._settings_request_source = ""
+
+        current = resolve_settings(load_config_json(), load_env_fallback())
+        try:
+            overlay_controller = getattr(self, "_overlay_controller", None)
+            if overlay_controller is not None:
+                updated = overlay_controller.run_onboarding_dialog(current)
+            else:
+                updated = run_onboarding(current)
+            if updated is None:
+                return
+            save_config_json(updated)
+            source_suffix = f" ({source})" if source else ""
+            message = (
+                "Settings saved. Restart WhisperToCode to apply endpoint/model changes."
+                f"{source_suffix}"
+            )
+            print(message)
+            self._notify_tray_unavailable(message)
+        except Exception as exc:
+            print(f"Failed to open settings: {exc}", file=sys.stderr)
 
     def _handle_tray_exit(self, icon, item) -> None:
         handle_tray_exit(self, icon, item)

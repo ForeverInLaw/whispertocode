@@ -217,6 +217,16 @@ class QtCapsuleOverlayController:
     def update_level(self, level: float) -> None:
         self._queue.put(("level", level))
 
+    def run_onboarding_dialog(self, initial_settings):
+        response_queue: "queue.Queue[Any]" = queue.Queue(maxsize=1)
+        done_event = threading.Event()
+        self._queue.put(("onboarding", (initial_settings, response_queue, done_event)))
+        done_event.wait()
+        result = response_queue.get()
+        if isinstance(result, Exception):
+            raise result
+        return result
+
     def hide(self) -> None:
         self._queue.put(("hide", None))
 
@@ -264,6 +274,22 @@ class QtCapsuleOverlayController:
                         overlay.set_level(float(value))
                     elif cmd == "hide":
                         overlay.hide()
+                    elif cmd == "onboarding":
+                        initial_settings, response_queue, done_event = value
+                        try:
+                            from .onboarding import run_onboarding_with_qt
+
+                            result = run_onboarding_with_qt(
+                                QtCore,
+                                QtGui,
+                                QtWidgets,
+                                initial_settings,
+                            )
+                            response_queue.put(result)
+                        except Exception as exc:
+                            response_queue.put(exc)
+                        finally:
+                            done_event.set()
                     elif cmd == "shutdown":
                         timer.stop()
                         overlay.close()
