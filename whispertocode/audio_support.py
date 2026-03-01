@@ -21,10 +21,12 @@ def audio_callback(app, indata, _frames, _time_info, status) -> None:
                 if raw_level > app._peak_level:
                     app._peak_level = raw_level
                 else:
-                    app._peak_level = max(app._min_level, app._peak_level * 0.995)
+                    # Slow peak decay keeps short-term dynamics without pinning voice to 100%.
+                    app._peak_level = max(app._min_level, app._peak_level * 0.999)
 
                 if app._peak_level > app._min_level:
-                    level_value = min(1.0, max(0.0, raw_level / app._peak_level))
+                    reference_level = max(app._min_level, app._peak_level * 1.8)
+                    level_value = min(1.0, max(0.0, raw_level / reference_level))
                 else:
                     level_value = 0.0
 

@@ -235,6 +235,25 @@ class ModesAndFallbackTests(unittest.TestCase):
         level_value = app._overlay_controller.update_level.call_args.args[0]
         self.assertGreater(level_value, 0.0)
 
+    def test_audio_callback_keeps_headroom_for_loud_voice(self):
+        app = _make_app()
+        app._recording = True
+        app._chunks = []
+        app._overlay_controller = mock.Mock()
+
+        loud_frame = np.array([[0.6], [-0.6], [0.6], [-0.6]], dtype=np.float32)
+        medium_frame = np.array([[0.3], [-0.3], [0.3], [-0.3]], dtype=np.float32)
+
+        app._audio_callback(loud_frame, frames=4, time_info=None, status=None)
+        first_level = app._overlay_controller.update_level.call_args.args[0]
+        app._audio_callback(medium_frame, frames=4, time_info=None, status=None)
+        second_level = app._overlay_controller.update_level.call_args.args[0]
+
+        self.assertLess(first_level, 1.0)
+        self.assertGreater(first_level, 0.0)
+        self.assertGreater(second_level, 0.0)
+        self.assertLess(second_level, first_level)
+
     def test_start_recording_shows_overlay(self):
         app = _make_app()
         app._overlay_controller = mock.Mock()

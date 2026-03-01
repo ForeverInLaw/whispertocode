@@ -74,8 +74,8 @@ class _CapsuleOverlayWidget:
 
             now = time.monotonic()
             
-            # Smooth dynamic sensitivity multiplier
-            sensitive_level = min(1.0, self._display_level * 4.0)
+            # Keep responsiveness for speech while preserving headroom.
+            sensitive_level = min(1.0, self._display_level * 1.35)
             
             # White bars with premium opacity
             color = qt_gui.QColor(255, 255, 255, 230)
