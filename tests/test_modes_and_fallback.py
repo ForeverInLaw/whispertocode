@@ -116,6 +116,7 @@ def _make_app() -> "ptt_whisper.HoldToTalkRiva":
     app._keyboard = mock.Mock()
     app._peak_level = 0.05
     app._min_level = 0.01
+    app._level_ema = 0.02
     return app
 
 
@@ -253,6 +254,20 @@ class ModesAndFallbackTests(unittest.TestCase):
         self.assertGreater(first_level, 0.0)
         self.assertGreater(second_level, 0.0)
         self.assertLess(second_level, first_level)
+
+    def test_audio_callback_adapts_for_very_quiet_microphone(self):
+        app = _make_app()
+        app._recording = True
+        app._chunks = []
+        app._overlay_controller = mock.Mock()
+
+        quiet_frame = np.array([[0.004], [-0.004], [0.004], [-0.004]], dtype=np.float32)
+        for _ in range(140):
+            app._audio_callback(quiet_frame, frames=4, time_info=None, status=None)
+
+        level_value = app._overlay_controller.update_level.call_args.args[0]
+        self.assertGreater(level_value, 0.3)
+        self.assertLessEqual(level_value, 1.0)
 
     def test_start_recording_shows_overlay(self):
         app = _make_app()
@@ -397,6 +412,18 @@ class OverlayPlacementTests(unittest.TestCase):
         overlay._place_bottom_center()
 
         widget.move.assert_called_once_with(425, 530)
+
+    def test_bar_position_gain_prefers_center_and_is_symmetric(self):
+        count = 20
+        center_left = overlay_module._CapsuleOverlayWidget._bar_position_gain(9, count)
+        center_right = overlay_module._CapsuleOverlayWidget._bar_position_gain(10, count)
+        edge_left = overlay_module._CapsuleOverlayWidget._bar_position_gain(0, count)
+        edge_right = overlay_module._CapsuleOverlayWidget._bar_position_gain(19, count)
+
+        self.assertGreater(center_left, edge_left)
+        self.assertGreater(center_right, edge_right)
+        self.assertAlmostEqual(center_left, center_right, places=6)
+        self.assertAlmostEqual(edge_left, edge_right, places=6)
 
 
 if __name__ == "__main__":

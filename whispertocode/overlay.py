@@ -43,6 +43,17 @@ class _CapsuleOverlayWidget:
         self._widget.paintEvent = self._paint_hook  # type: ignore[assignment]
         self._place_bottom_center()
 
+    @staticmethod
+    def _bar_position_gain(index: int, count: int) -> float:
+        if count <= 1:
+            return 1.0
+        center = (count - 1) / 2.0
+        distance = abs(index - center) / max(center, 1.0)
+        distance = max(0.0, min(1.0, distance))
+        tail = 1.0 - distance
+        smooth_tail = tail * tail * (3.0 - 2.0 * tail)
+        return 0.35 + (0.65 * smooth_tail)
+
     def _build_paint_hook(self):
         qt_gui = self._qt_gui
 
@@ -85,7 +96,8 @@ class _CapsuleOverlayWidget:
             for idx in range(bar_count):
                 # Smooth sine wave pulse + random jitter from display level
                 pulse = 0.3 + 0.7 * abs(math.sin(now * 3.5 + self._phases[idx]))
-                bar_level = max(0.05, min(1.0, sensitive_level * pulse))
+                position_gain = self._bar_position_gain(idx, bar_count)
+                bar_level = max(0.05, min(1.0, sensitive_level * pulse * position_gain))
                 
                 # Minimum height to show tiny dots when silent
                 bar_h = max(bar_width, max_bar_height * bar_level)

@@ -106,6 +106,7 @@ class HoldToTalkRiva:
         self._stop_event = threading.Event()
         self._peak_level = 0.05
         self._min_level = 0.01
+        self._level_ema = 0.02
 
         self._keyboard = keyboard.Controller()
         self._local_hotkeys_enabled = os.name == "nt" and not self._tray_enabled

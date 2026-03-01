@@ -18,17 +18,23 @@ def audio_callback(app, indata, _frames, _time_info, status) -> None:
                     frame = frame[:, 0]
                 raw_level = float(np.sqrt(np.mean(np.square(np.clip(frame, -1.0, 1.0)))))
 
+                if not hasattr(app, "_level_ema"):
+                    app._level_ema = max(app._min_level, raw_level)
+
                 if raw_level > app._peak_level:
                     app._peak_level = raw_level
                 else:
-                    # Slow peak decay keeps short-term dynamics without pinning voice to 100%.
-                    app._peak_level = max(app._min_level, app._peak_level * 0.999)
+                    app._peak_level = max(app._min_level, app._peak_level * 0.997)
 
-                if app._peak_level > app._min_level:
-                    reference_level = max(app._min_level, app._peak_level * 1.8)
-                    level_value = min(1.0, max(0.0, raw_level / reference_level))
+                # Adaptive gain for quiet/loud microphones without filtering out real activity.
+                if raw_level >= app._level_ema:
+                    app._level_ema += (raw_level - app._level_ema) * 0.22
                 else:
-                    level_value = 0.0
+                    app._level_ema += (raw_level - app._level_ema) * 0.08
+
+                reference_level = max(app._min_level, app._level_ema * 1.35)
+                normalized_level = max(0.0, (raw_level / reference_level) * 1.2)
+                level_value = normalized_level / (1.0 + normalized_level)
 
     if level_value is not None:
         app._update_overlay_level(level_value)
