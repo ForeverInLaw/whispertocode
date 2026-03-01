@@ -89,6 +89,13 @@ class _CapsuleOverlayWidget:
         self._display_level = 0.0
         self._phases = [idx * 0.4 for idx in range(40)]
         self._last_tick = time.monotonic()
+
+        self._target_opacity = 0.0
+        self._current_opacity = 0.0
+        self._base_x = 0
+        self._base_y = 0
+        self._current_y = 0.0
+
         self._paint_hook = self._build_paint_hook()
         self._widget.paintEvent = self._paint_hook  # type: ignore[assignment]
         self._place_bottom_center()
@@ -156,19 +163,28 @@ class _CapsuleOverlayWidget:
         if screen is None:
             return
         geometry = screen.availableGeometry()
-        x = geometry.x() + int((geometry.width() - self._widget.width()) / 2)
-        y = geometry.y() + geometry.height() - self._widget.height() - 20
-        self._widget.move(x, y)
+        self._base_x = geometry.x() + int((geometry.width() - self._widget.width()) / 2)
+        self._base_y = geometry.y() + geometry.height() - self._widget.height() - 20
+        if self._target_opacity > 0 and abs(self._current_opacity - self._target_opacity) < 0.01:
+            self._current_y = float(self._base_y)
+            self._widget.move(self._base_x, int(self._current_y))
 
     def show_recording(self, mode: str) -> None:
         self.set_mode(mode)
         self._place_bottom_center()
+        if not self._widget.isVisible() or self._current_opacity <= 0.01:
+            self._current_opacity = 0.0
+            self._current_y = float(self._base_y + 10)
+            self._widget.setWindowOpacity(0.0)
+            self._widget.move(self._base_x, int(self._current_y))
+
+        self._target_opacity = 1.0
         self._widget.show()
         self._widget.raise_()
         self._widget.update()
 
     def hide(self) -> None:
-        self._widget.hide()
+        self._target_opacity = 0.0
 
     def close(self) -> None:
         self._widget.close()
@@ -194,6 +210,23 @@ class _CapsuleOverlayWidget:
         else:
             self._display_level += (self._target_level - self._display_level) * down_speed
         self._display_level = max(0.0, min(self._display_level, 1.0))
+
+        if hasattr(self, "_target_opacity"):
+            anim_speed = min(1.0, 15.0 * dt)
+            if abs(self._target_opacity - self._current_opacity) > 0.001:
+                self._current_opacity += (self._target_opacity - self._current_opacity) * anim_speed
+                if abs(self._target_opacity - self._current_opacity) < 0.001:
+                    self._current_opacity = self._target_opacity
+                self._widget.setWindowOpacity(self._current_opacity)
+
+                target_y = float(self._base_y) if self._target_opacity > 0.5 else float(self._base_y + 10)
+                self._current_y += (target_y - self._current_y) * anim_speed
+                if self._current_opacity > 0.0:
+                    self._widget.move(self._base_x, int(self._current_y))
+
+                if self._current_opacity <= 0.0 and self._widget.isVisible():
+                    self._widget.hide()
+
         if self._widget.isVisible():
             self._widget.update()
 
@@ -339,6 +372,8 @@ class HoldToTalkRiva:
         self._chunks: List[np.ndarray] = []
         self._stream: Optional[sd.InputStream] = None
         self._stop_event = threading.Event()
+        self._peak_level = 0.05
+        self._min_level = 0.01
 
         self._keyboard = keyboard.Controller()
         self._local_hotkeys_enabled = os.name == "nt" and not self._tray_enabled
@@ -588,7 +623,7 @@ class HoldToTalkRiva:
         self.request_shutdown("Tray")
 
     def _tray_title(self) -> str:
-        return f"Riva PTT ({self._get_output_mode().upper()})"
+        return f"WhisperToCode ({self._get_output_mode().upper()})"
 
     def _build_tray_icon_image(self, image_module, draw_module):
         image = image_module.new("RGBA", (64, 64), (16, 18, 25, 255))
@@ -601,7 +636,7 @@ class HoldToTalkRiva:
     def _build_tray_menu(self, pystray):
         menu_item = pystray.MenuItem
         menu_items = [
-            menu_item("Riva Push-to-Talk", None, enabled=False),
+            menu_item("WhisperToCode", None, enabled=False),
             menu_item(
                 "RAW mode",
                 self._handle_tray_set_mode_raw,
@@ -643,7 +678,7 @@ class HoldToTalkRiva:
         try:
             import ctypes
 
-            ctypes.windll.user32.MessageBoxW(0, message, "Riva PTT", 0x00001030)
+            ctypes.windll.user32.MessageBoxW(0, message, "WhisperToCode", 0x00001030)
         except Exception:
             pass
 
@@ -732,7 +767,22 @@ class HoldToTalkRiva:
                 if frame.size > 0:
                     if frame.ndim > 1:
                         frame = frame[:, 0]
-                    level_value = float(np.sqrt(np.mean(np.square(np.clip(frame, -1.0, 1.0)))))
+                    # Calculate raw RMS level
+                    raw_level = float(np.sqrt(np.mean(np.square(np.clip(frame, -1.0, 1.0)))))
+                    
+                    # Auto-gain control logic
+                    if raw_level > self._peak_level:
+                        self._peak_level = raw_level
+                    else:
+                        # Slowly decay peak level over time so it stays sensitive if user gets quieter
+                        self._peak_level = max(self._min_level, self._peak_level * 0.995)
+                    
+                    # Normalize level between 0.0 and 1.0 based on current dynamic peak
+                    if self._peak_level > self._min_level:
+                        level_value = min(1.0, max(0.0, raw_level / self._peak_level))
+                    else:
+                        level_value = 0.0
+                        
         if level_value is not None:
             self._update_overlay_level(level_value)
 
@@ -1073,7 +1123,7 @@ class HoldToTalkRiva:
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Push-to-talk speech-to-text with NVIDIA Riva Whisper. "
+            "WhisperToCode speech-to-text with NVIDIA Riva Whisper. "
             "Hold Shift to capture audio, release Shift to type text."
         )
     )

@@ -112,6 +112,8 @@ def _make_app() -> "ptt_whisper.HoldToTalkRiva":
     app._stop_event = threading.Event()
     app._output_mode = ptt_whisper.OUTPUT_MODE_RAW
     app._keyboard = mock.Mock()
+    app._peak_level = 0.05
+    app._min_level = 0.01
     return app
 
 
@@ -367,6 +369,8 @@ class OverlayPlacementTests(unittest.TestCase):
         overlay = object.__new__(ptt_whisper._CapsuleOverlayWidget)
         overlay._qt_gui = qt_gui
         overlay._widget = widget
+        overlay._target_opacity = 1.0
+        overlay._current_opacity = 1.0
 
         overlay._place_bottom_center()
 

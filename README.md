@@ -1,4 +1,4 @@
-# Riva Push-to-Talk (Shift hold)
+# WhisperToCode (Shift hold)
 
 Cross-platform speech-to-text tool for Windows/Linux/macOS using NVIDIA Riva Whisper (`whisper-large-v3`):
 - hold `Shift` for at least `0.5s` -> microphone recording starts
