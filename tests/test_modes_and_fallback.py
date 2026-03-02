@@ -203,6 +203,58 @@ class ModesAndFallbackTests(unittest.TestCase):
         self.assertIs(app._hold_timer, timer)
         timer.start.assert_called_once()
 
+    def test_shift_press_recognizes_keycode_vk(self):
+        app = _make_app()
+        app.hold_delay_sec = 0.5
+        app._ctrl_count = 0
+        app._press_token = 0
+        app._hold_timer = None
+        timer = mock.Mock()
+        with mock.patch("whispertocode.app.threading.Timer", return_value=timer):
+            app._on_press(types.SimpleNamespace(vk=160))
+        self.assertEqual(app._ctrl_count, 1)
+        self.assertEqual(app._press_token, 1)
+        self.assertIs(app._hold_timer, timer)
+        timer.start.assert_called_once()
+
+    def test_shift_press_repeat_does_not_increment_counter(self):
+        app = _make_app()
+        app.hold_delay_sec = 0.5
+        app._ctrl_count = 0
+        app._press_token = 0
+        app._hold_timer = None
+        first_timer = mock.Mock()
+        second_timer = mock.Mock()
+        with mock.patch(
+            "whispertocode.app.threading.Timer",
+            side_effect=[first_timer, second_timer],
+        ) as timer_ctor:
+            app._on_press(ptt_whisper.keyboard.Key.shift)
+            app._on_press(ptt_whisper.keyboard.Key.shift)
+        self.assertEqual(app._ctrl_count, 1)
+        self.assertEqual(app._press_token, 1)
+        self.assertIs(app._hold_timer, first_timer)
+        first_timer.start.assert_called_once()
+        second_timer.start.assert_not_called()
+        self.assertEqual(timer_ctor.call_count, 1)
+
+    def test_shift_release_recognizes_keycode_vk(self):
+        app = _make_app()
+        app._ctrl_count = 1
+        app._press_token = 1
+        app._recording = True
+        timer = mock.Mock()
+        app._hold_timer = timer
+        app._stop_recording = mock.Mock()
+
+        app._on_release(types.SimpleNamespace(vk=161))
+
+        self.assertEqual(app._ctrl_count, 0)
+        self.assertEqual(app._press_token, 2)
+        self.assertIsNone(app._hold_timer)
+        timer.cancel.assert_called_once()
+        app._stop_recording.assert_called_once()
+
     def test_startup_banner_in_tray_mode_mentions_tray_controls(self):
         app = _make_app()
         app.hold_delay_sec = 0.5

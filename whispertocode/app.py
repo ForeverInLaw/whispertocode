@@ -81,6 +81,10 @@ class HoldToTalkRiva:
         self._output_mode = self._normalize_output_mode(output_mode)
         self._tray_enabled = enable_tray
         self._debug_console = debug_console
+        debug_keys_env = os.getenv("WTC_DEBUG_KEYS", "").strip().lower()
+        self._debug_keys = self._debug_console or debug_keys_env in ("1", "true", "yes", "on")
+        if self._debug_keys:
+            print("Keyboard debug logging enabled.")
 
         metadata = [
             ["function-id", self.function_id],
