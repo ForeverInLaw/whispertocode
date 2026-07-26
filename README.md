@@ -14,7 +14,7 @@ Behavior:
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.10+ (verified on 3.12 and 3.14; CI builds on 3.13)
 - Working microphone
 - NVIDIA API key — required for the `riva` backend and for `SMART` rewrite mode in any backend.
   `--backend local --mode raw` runs with no key at all.
@@ -130,6 +130,8 @@ Build CI binaries (workflow):
 - Native multi-arch artifacts:
 - `windows-x64`
 - `macos-arm64`
+- `macos-x64` (Intel — best effort: pywhispercpp has no x86_64 macOS wheel, so this
+  job compiles whisper.cpp from source and is allowed to fail without blocking a release)
 - `linux-x64`
 - `linux-arm64`
 - Linux distro artifacts (`x64`):

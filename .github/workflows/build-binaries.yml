@@ -13,27 +13,43 @@ jobs:
   build-native:
     name: Native ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
+    # The Intel macOS build compiles whisper.cpp from source and is allowed to
+    # fail without blocking the release of the other four artifacts.
+    continue-on-error: ${{ matrix.experimental == true }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: windows-latest
+          # Labels are pinned, never `-latest`: macos-latest moved 15 -> 26 in
+          # July 2026 and windows-latest was repointed to the VS2026 image in
+          # June 2026. A release pipeline should not take a silent OS bump.
+          - runner: windows-2025
             target: windows-x64
+          # Staying on macOS 15 (not 26) deliberately: oldest still-GA macOS
+          # means oldest Homebrew bottles, so the artifact runs on more Macs.
           - runner: macos-15
             target: macos-arm64
-          - runner: ubuntu-latest
+          # pywhispercpp publishes no macOS x86_64 wheel for any Python, so
+          # this one builds whisper.cpp from the sdist. Hosted Intel macOS is
+          # announced as available until ~August 2027.
+          - runner: macos-15-intel
+            target: macos-x64
+            experimental: true
+          - runner: ubuntu-24.04
             target: linux-x64
           - runner: ubuntu-24.04-arm
             target: linux-arm64
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          # Not 3.11: actions/python-versions stopped building macOS/Windows
+          # interpreters at 3.11.9, so "3.11" silently pins a 2024 patch there.
+          python-version: "3.13"
 
       - name: Install PortAudio (Linux)
         if: startsWith(matrix.runner, 'ubuntu')
@@ -44,6 +60,10 @@ jobs:
       - name: Install PortAudio (macOS)
         if: startsWith(matrix.runner, 'macos')
         run: brew install portaudio
+
+      - name: Install cmake for the pywhispercpp source build (macOS Intel)
+        if: matrix.runner == 'macos-15-intel'
+        run: brew install cmake
 
       - name: Install Dependencies
         run: |
@@ -65,7 +85,7 @@ jobs:
           cp dist/riva-ptt dist/riva-ptt-${{ matrix.target }}
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: riva-ptt-${{ matrix.target }}
           path: |
@@ -73,16 +93,19 @@ jobs:
 
   build-linux-distros:
     name: Linux Distro ${{ matrix.distro }}-x64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         include:
+          # Stays on 24.04, not 26.04: the artifact is built against the
+          # container's glibc, so a newer base would stop running on the LTS
+          # most users are actually on.
           - distro: ubuntu
             image: ubuntu:24.04
             bootstrap: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip python3-venv build-essential portaudio19-dev
           - distro: debian
-            image: debian:12-slim
+            image: debian:13-slim
             bootstrap: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip python3-venv build-essential portaudio19-dev
           - distro: kali
             image: kalilinux/kali-rolling
@@ -90,7 +113,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build in ${{ matrix.image }}
         run: |
@@ -106,7 +129,7 @@ jobs:
           "
 
       - name: Upload Distro Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: riva-ptt-${{ matrix.distro }}-x64
           path: |
@@ -114,11 +137,11 @@ jobs:
 
   build-arch-alias:
     name: Linux Distro arch-x64 (alias)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build-native
     steps:
       - name: Download linux-x64 Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: riva-ptt-linux-x64
           path: artifacts/linux-x64
@@ -128,22 +151,24 @@ jobs:
           cp artifacts/linux-x64/riva-ptt-linux-x64 artifacts/riva-ptt-arch-x64
 
       - name: Upload arch-x64 Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: riva-ptt-arch-x64
           path: artifacts/riva-ptt-arch-x64
 
   release:
     name: Publish GitHub Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build-native, build-linux-distros, build-arch-alias]
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
+      # Unmaintained and still declares runs.using: node20. Node 20 is being
+      # removed from the runners in autumn 2026 — needs replacing before then.
       - name: Bump version and push tag
         id: tag_version
         uses: mathieudutour/github-tag-action@v6.2
@@ -152,7 +177,7 @@ jobs:
           default_bump: patch
 
       - name: Download Build Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -160,7 +185,7 @@ jobs:
         run: ls -laR artifacts
 
       - name: Publish Release Assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag_version.outputs.new_tag }}
           name: Release ${{ steps.tag_version.outputs.new_tag }}
