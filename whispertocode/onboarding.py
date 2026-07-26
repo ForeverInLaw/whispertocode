@@ -49,6 +49,51 @@ def run_onboarding_with_qt(qt_core, qt_gui, qt_widgets, initial: AppSettings) ->
     return wizard.collect_settings()
 
 
+def _validating_page_class(qt_widgets):
+    """Build the QWizardPage subclass shared by every page that validates.
+
+    A real subclass rather than the instance-attribute assignment the other
+    pages use for ``nextId``: overriding a C++ virtual that way only works
+    because Shiboken looks the name up on the wrapper object, and a page that
+    also has to carry per-page state (its error label, whether the user has
+    touched it) reads better as a type than as three bolted-on attributes.
+    The Qt module only exists at call time, hence a factory.
+    """
+
+    class _ValidatingPage(qt_widgets.QWizardPage):
+        def __init__(self) -> None:
+            super().__init__()
+            self._problems = list
+            self._error_label = None
+            self._touched = False
+
+        def bind(self, problems, error_label, signals) -> None:
+            """Drive Next off ``problems()`` and report it in ``error_label``."""
+            self._problems = problems
+            self._error_label = error_label
+            for signal in signals:
+                signal.connect(self._on_input_changed)
+            self._refresh()
+
+        def isComplete(self) -> bool:
+            return not self._problems()
+
+        def _on_input_changed(self, *_args) -> None:
+            self._touched = True
+            self._refresh()
+            self.completeChanged.emit()
+
+        def _refresh(self) -> None:
+            # Stays quiet until the user has actually edited this page: a blank
+            # first-run form should read as unfinished, not as a mistake. Next
+            # is already disabled, so nothing invalid can be submitted anyway.
+            problems = self._problems() if self._touched else ()
+            self._error_label.setText("\n".join(problems))
+            self._error_label.setVisible(bool(problems))
+
+    return _ValidatingPage
+
+
 class _OnboardingWizard:
     def __init__(self, qt_core, qt_gui, qt_widgets, initial: AppSettings) -> None:
         self._qt_core = qt_core
@@ -124,6 +169,13 @@ class _OnboardingWizard:
                 font-size: 13px;
                 letter-spacing: 0.3px;
                 font-weight: 500;
+            }
+            /* Louder than a caption on purpose: this is the only place a
+               blocked page explains itself now that the popup is gone. */
+            QWizardPage QLabel#onboardingError {
+                color: #ff8a8a;
+                font-size: 13px;
+                font-weight: 600;
             }
             QFrame#onboardingCard {
                 background: #18181a;
@@ -307,8 +359,9 @@ class _OnboardingWizard:
 
     def _build_pages(self) -> None:
         qt_widgets = self._qt_widgets
+        validating_page = _validating_page_class(qt_widgets)
 
-        self._api_key_page = qt_widgets.QWizardPage()
+        self._api_key_page = validating_page()
         self._api_key_page.setTitle("Speech backend")
         if self._existing_api_key:
             self._api_key_page.setSubTitle(
@@ -366,10 +419,17 @@ class _OnboardingWizard:
                 "unless you also want the app to tidy up what you dictated."
             )
         key_form.addRow("", self._build_caption(key_caption))
+        self._key_error = self._build_error()
+        key_form.addRow("", self._key_error)
         key_card.setLayout(key_form)
         key_layout.addWidget(key_card)
         key_layout.addStretch(1)
         self._api_key_page.setLayout(key_layout)
+        self._api_key_page.bind(
+            self._api_key_problems,
+            self._key_error,
+            (self._key_input.textChanged, self._backend_combo.currentIndexChanged),
+        )
 
         self._mode_page = qt_widgets.QWizardPage()
         self._mode_page.setTitle("Advanced setup")
@@ -400,7 +460,7 @@ class _OnboardingWizard:
         mode_layout.addStretch(1)
         self._mode_page.setLayout(mode_layout)
 
-        self._riva_page = qt_widgets.QWizardPage()
+        self._riva_page = validating_page()
         self._riva_page.setTitle("Riva endpoint")
         riva_layout = qt_widgets.QVBoxLayout()
         riva_layout.setContentsMargins(0, 8, 0, 0)
@@ -418,13 +478,23 @@ class _OnboardingWizard:
         riva_form.addRow("", self._build_caption("RIVA_SERVER"))
         riva_form.addRow("Function ID", self._riva_function_input)
         riva_form.addRow("", self._build_caption("RIVA_FUNCTION_ID"))
+        self._riva_error = self._build_error()
+        riva_form.addRow("", self._riva_error)
         riva_card.setLayout(riva_form)
         riva_layout.addWidget(riva_meta)
         riva_layout.addWidget(riva_card)
         riva_layout.addStretch(1)
         self._riva_page.setLayout(riva_layout)
+        self._riva_page.bind(
+            self._riva_problems,
+            self._riva_error,
+            (
+                self._riva_server_input.textChanged,
+                self._riva_function_input.textChanged,
+            ),
+        )
 
-        self._nemotron_page = qt_widgets.QWizardPage()
+        self._nemotron_page = validating_page()
         self._nemotron_page.setTitle("Cleanup model")
         nem_layout = qt_widgets.QVBoxLayout()
         nem_layout.setContentsMargins(0, 8, 0, 0)
@@ -494,11 +564,21 @@ class _OnboardingWizard:
             ),
         )
         nem_form.addRow(self._enable_thinking_checkbox)
+        self._nem_error = self._build_error()
+        nem_form.addRow("", self._nem_error)
         nem_card.setLayout(nem_form)
         nem_layout.addWidget(nem_meta)
         nem_layout.addWidget(nem_card)
         nem_layout.addStretch(1)
         self._nemotron_page.setLayout(nem_layout)
+        self._nemotron_page.bind(
+            self._nemotron_problems,
+            self._nem_error,
+            (
+                self._nem_base_url_input.textChanged,
+                self._nem_model_input.textChanged,
+            ),
+        )
 
         self._review_page = qt_widgets.QWizardPage()
         self._review_page.setTitle("Review")
@@ -533,10 +613,6 @@ class _OnboardingWizard:
         self._nemotron_page.nextId = self._nem_next_id  # type: ignore[method-assign]
         self._review_page.initializePage = self._init_review_page  # type: ignore[method-assign]
 
-        self._api_key_page.validatePage = self._validate_api_key_page  # type: ignore[method-assign]
-        self._riva_page.validatePage = self._validate_riva_page  # type: ignore[method-assign]
-        self._nemotron_page.validatePage = self._validate_nemotron_page  # type: ignore[method-assign]
-
     def _build_card(self):
         card = self._qt_widgets.QFrame()
         card.setObjectName("onboardingCard")
@@ -548,6 +624,14 @@ class _OnboardingWizard:
         caption.setObjectName("onboardingMeta")
         caption.setWordWrap(True)
         return caption
+
+    def _build_error(self):
+        """Inline problem list for one card; hidden while the page is valid."""
+        label = self._qt_widgets.QLabel("")
+        label.setObjectName("onboardingError")
+        label.setWordWrap(True)
+        label.setVisible(False)
+        return label
 
     def _build_whole_field(self, value: int, low: int, high: int, step: int):
         """Whole-number field whose range makes the invalid states untypable."""
@@ -579,16 +663,15 @@ class _OnboardingWizard:
     def _selected_backend(self) -> str:
         return normalize_stt_backend(self._backend_combo.currentData())
 
-    def _validate_api_key_page(self) -> bool:
+    def _api_key_problems(self) -> list[str]:
         if self._key_input.text().strip() or self._existing_api_key:
-            return True
+            return []
         if self._selected_backend() == STT_BACKEND_LOCAL:
-            return True
-        self._show_invalid(
+            return []
+        return [
             "Enter an NVIDIA API key, or choose whisper.cpp (local) to transcribe "
             "offline without one."
-        )
-        return False
+        ]
 
     @staticmethod
     def _riva_next_id() -> int:
@@ -598,29 +681,27 @@ class _OnboardingWizard:
     def _nem_next_id() -> int:
         return 4
 
-    def _validate_riva_page(self) -> bool:
+    def _riva_problems(self) -> list[str]:
         server = self._riva_server_input.text().strip()
         function_id = self._riva_function_input.text().strip()
         if server and function_id:
-            return True
-        self._show_invalid("Fill in both the server address and the function ID.")
-        return False
+            return []
+        return ["Fill in both the server address and the function ID."]
 
-    def _validate_nemotron_page(self) -> bool:
+    def _nemotron_problems(self) -> list[str]:
         fields = [
             ("an API endpoint", self._nem_base_url_input.text().strip()),
             ("a model name", self._nem_model_input.text().strip()),
         ]
-        for label, value in fields:
-            if not value:
-                self._show_invalid(f"The cleanup model needs {label}.")
-                return False
+        # Every blank field at once: the popup this replaced named only the
+        # first, so a page with both empty took two rounds to get past.
         # The numeric fields need no check: their spin boxes cannot hold a value
         # outside the range the app accepts.
-        return True
-
-    def _show_invalid(self, message: str) -> None:
-        self._qt_widgets.QMessageBox.warning(self._wizard, "Check this page", message)
+        return [
+            f"The cleanup model needs {label}."
+            for label, value in fields
+            if not value
+        ]
 
     def _init_review_page(self) -> None:
         # Only what this configuration will actually use: a local-only setup has
