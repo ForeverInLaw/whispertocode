@@ -243,19 +243,16 @@ class _OnboardingWizard:
         self._api_key_page.setTitle("Speech backend")
         if self._existing_api_key:
             self._api_key_page.setSubTitle(
-                "Enter a new NVIDIA API key, or leave blank to keep the current one."
+                "Choose how your speech is transcribed. The key you saved earlier stays in place."
             )
         else:
             self._api_key_page.setSubTitle(
-                "Pick a speech backend. Cloud needs an NVIDIA API key; local runs offline."
+                "Choose how your speech is transcribed: in the cloud with an NVIDIA API key, "
+                "or offline on this machine."
             )
         key_layout = qt_widgets.QVBoxLayout()
         key_layout.setContentsMargins(0, 8, 0, 0)
         key_layout.setSpacing(12)
-        key_meta = qt_widgets.QLabel("Secure connection setup")
-        key_meta.setObjectName("onboardingMeta")
-        key_meta.setWordWrap(True)
-        key_layout.addWidget(key_meta)
         key_card = self._build_card()
         key_form = qt_widgets.QFormLayout()
         key_form.setContentsMargins(20, 18, 20, 20)
@@ -278,31 +275,28 @@ class _OnboardingWizard:
             self._local_model_combo.setCurrentIndex(initial_model_index)
         self._local_model_dir_input = qt_widgets.QLineEdit(self._initial.local_model_dir)
         self._local_model_dir_input.setPlaceholderText(str(default_model_dir()))
-        key_form.addRow("Speech backend", self._backend_combo)
+        key_form.addRow("Transcribe with", self._backend_combo)
         key_form.addRow("Local model", self._local_model_combo)
-        download_hint = qt_widgets.QLabel(
-            "Downloaded on your first dictation, not now. Cached after that."
+        key_form.addRow(
+            "",
+            self._build_caption(
+                "Downloaded the first time you dictate, not now. Reused after that."
+            ),
         )
-        download_hint.setObjectName("onboardingMeta")
-        download_hint.setWordWrap(True)
-        key_form.addRow("", download_hint)
-        key_form.addRow("Local model directory", self._local_model_dir_input)
+        key_form.addRow("Model folder", self._local_model_dir_input)
         self._key_input = qt_widgets.QLineEdit()
         self._key_input.setEchoMode(qt_widgets.QLineEdit.PasswordEchoOnEdit)
         self._key_input.setPlaceholderText("nvapi-...")
         self._api_key_page.registerField("nvidia_api_key", self._key_input)
-        key_form.addRow("NVIDIA_API_KEY", self._key_input)
-        local_key_hint = qt_widgets.QLabel(
-            "The key stays optional for local speech, but SMART rewrite still needs it."
-        )
-        local_key_hint.setObjectName("onboardingMeta")
-        local_key_hint.setWordWrap(True)
-        key_form.addRow("", local_key_hint)
+        key_form.addRow("NVIDIA API key", self._key_input)
         if self._existing_api_key:
-            keep_hint = qt_widgets.QLabel("Current key is configured. Leave this blank to keep it.")
-            keep_hint.setObjectName("onboardingMeta")
-            keep_hint.setWordWrap(True)
-            key_form.addRow("", keep_hint)
+            key_caption = "NVIDIA_API_KEY — a key is already saved. Leave this blank to keep it."
+        else:
+            key_caption = (
+                "NVIDIA_API_KEY — required for cloud speech. Local speech works without it, "
+                "unless you also want the app to tidy up what you dictated."
+            )
+        key_form.addRow("", self._build_caption(key_caption))
         key_card.setLayout(key_form)
         key_layout.addWidget(key_card)
         key_layout.addStretch(1)
@@ -311,16 +305,15 @@ class _OnboardingWizard:
         self._mode_page = qt_widgets.QWizardPage()
         self._mode_page.setTitle("Advanced setup")
         self._mode_page.setSubTitle(
-            "You can keep defaults or configure custom endpoints and models."
+            "Optional. The defaults already point at NVIDIA's hosted services."
         )
         mode_layout = qt_widgets.QVBoxLayout()
         mode_layout.setContentsMargins(0, 8, 0, 0)
         mode_layout.setSpacing(12)
-        mode_label = qt_widgets.QLabel(
-            "Defaults work out of the box. Enable advanced setup if you want custom Riva/Nemotron values."
+        mode_label = self._build_caption(
+            "Turn this on only if you need to send speech somewhere else, use a different "
+            "cleanup model, or change how that model writes."
         )
-        mode_label.setWordWrap(True)
-        mode_label.setObjectName("onboardingMeta")
         self._customize_checkbox = qt_widgets.QCheckBox(
             "Customize endpoints and models"
         )
@@ -343,16 +336,19 @@ class _OnboardingWizard:
         riva_layout = qt_widgets.QVBoxLayout()
         riva_layout.setContentsMargins(0, 8, 0, 0)
         riva_layout.setSpacing(12)
-        riva_meta = qt_widgets.QLabel("Speech recognition backend")
-        riva_meta.setObjectName("onboardingMeta")
+        riva_meta = self._build_caption(
+            "Where cloud speech is sent. Change these only if NVIDIA gave you a different endpoint."
+        )
         riva_card = self._build_card()
         riva_form = qt_widgets.QFormLayout()
         riva_form.setContentsMargins(20, 18, 20, 20)
         riva_form.setSpacing(10)
         self._riva_server_input = qt_widgets.QLineEdit(self._initial.riva_server)
         self._riva_function_input = qt_widgets.QLineEdit(self._initial.riva_function_id)
-        riva_form.addRow("Riva server", self._riva_server_input)
-        riva_form.addRow("Riva function ID", self._riva_function_input)
+        riva_form.addRow("Server address", self._riva_server_input)
+        riva_form.addRow("", self._build_caption("RIVA_SERVER"))
+        riva_form.addRow("Function ID", self._riva_function_input)
+        riva_form.addRow("", self._build_caption("RIVA_FUNCTION_ID"))
         riva_card.setLayout(riva_form)
         riva_layout.addWidget(riva_meta)
         riva_layout.addWidget(riva_card)
@@ -360,12 +356,14 @@ class _OnboardingWizard:
         self._riva_page.setLayout(riva_layout)
 
         self._nemotron_page = qt_widgets.QWizardPage()
-        self._nemotron_page.setTitle("Rewrite model")
+        self._nemotron_page.setTitle("Cleanup model")
         nem_layout = qt_widgets.QVBoxLayout()
         nem_layout.setContentsMargins(0, 8, 0, 0)
         nem_layout.setSpacing(12)
-        nem_meta = qt_widgets.QLabel("SMART mode rewrite backend")
-        nem_meta.setObjectName("onboardingMeta")
+        nem_meta = self._build_caption(
+            "The model that strips filler words and fixes punctuation before the text is typed. "
+            "It only runs when you switch the tray menu to SMART mode, and it always needs the API key."
+        )
         nem_card = self._build_card()
         nem_form = qt_widgets.QFormLayout()
         nem_form.setContentsMargins(20, 18, 20, 20)
@@ -385,17 +383,38 @@ class _OnboardingWizard:
         self._reasoning_print_limit_input = qt_widgets.QLineEdit(
             str(self._initial.nemotron_reasoning_print_limit)
         )
-        self._enable_thinking_checkbox = qt_widgets.QCheckBox("Enable thinking")
+        self._enable_thinking_checkbox = qt_widgets.QCheckBox(
+            "Let the model think before it rewrites"
+        )
         self._enable_thinking_checkbox.setChecked(self._initial.nemotron_enable_thinking)
-        nem_form.addRow("NEMOTRON_BASE_URL", self._nem_base_url_input)
-        nem_form.addRow("NEMOTRON_MODEL", self._nem_model_input)
-        nem_form.addRow("NEMOTRON_TEMPERATURE", self._temperature_input)
-        nem_form.addRow("NEMOTRON_TOP_P", self._top_p_input)
-        nem_form.addRow("NEMOTRON_MAX_TOKENS", self._max_tokens_input)
-        nem_form.addRow("NEMOTRON_REASONING_BUDGET", self._reasoning_budget_input)
+        nem_form.addRow("API endpoint", self._nem_base_url_input)
+        nem_form.addRow("", self._build_caption("NEMOTRON_BASE_URL"))
+        nem_form.addRow("Model", self._nem_model_input)
+        nem_form.addRow("", self._build_caption("NEMOTRON_MODEL"))
+        nem_form.addRow("Temperature", self._temperature_input)
+        nem_form.addRow("Top-p", self._top_p_input)
         nem_form.addRow(
-            "NEMOTRON_REASONING_PRINT_LIMIT",
-            self._reasoning_print_limit_input,
+            "",
+            self._build_caption(
+                "Narrows word choice to the most likely options. 1.0 leaves it wide open. "
+                "Must be between 0 and 1."
+            ),
+        )
+        nem_form.addRow("Response token limit", self._max_tokens_input)
+        nem_form.addRow("Thinking budget", self._reasoning_budget_input)
+        nem_form.addRow(
+            "",
+            self._build_caption(
+                "Tokens the model may spend thinking before it answers. "
+                "Anything above 4096 is lowered to 4096."
+            ),
+        )
+        nem_form.addRow("Thinking preview limit", self._reasoning_print_limit_input)
+        nem_form.addRow(
+            "",
+            self._build_caption(
+                "Debug console only. It never changes the text that gets typed."
+            ),
         )
         nem_form.addRow(self._enable_thinking_checkbox)
         nem_card.setLayout(nem_form)
@@ -410,8 +429,7 @@ class _OnboardingWizard:
         review_layout = qt_widgets.QVBoxLayout()
         review_layout.setContentsMargins(0, 8, 0, 0)
         review_layout.setSpacing(12)
-        review_meta = qt_widgets.QLabel("Final check before writing config.json")
-        review_meta.setObjectName("onboardingMeta")
+        review_meta = self._build_caption("Final check before writing config.json")
         review_card = self._build_card()
         review_card_layout = qt_widgets.QVBoxLayout()
         review_card_layout.setContentsMargins(20, 18, 20, 20)
@@ -447,6 +465,13 @@ class _OnboardingWizard:
         card.setObjectName("onboardingCard")
         return card
 
+    def _build_caption(self, text: str):
+        """Dim secondary line: field captions, env-var names, page hints."""
+        caption = self._qt_widgets.QLabel(text)
+        caption.setObjectName("onboardingMeta")
+        caption.setWordWrap(True)
+        return caption
+
     def _mode_next_id(self) -> int:
         if not self._customize_checkbox.isChecked():
             return 4
@@ -465,7 +490,10 @@ class _OnboardingWizard:
             return True
         if self._selected_backend() == STT_BACKEND_LOCAL:
             return True
-        self._show_invalid("NVIDIA_API_KEY cannot be empty.")
+        self._show_invalid(
+            "Enter an NVIDIA API key, or choose whisper.cpp (local) to transcribe "
+            "offline without one."
+        )
         return False
 
     @staticmethod
@@ -481,49 +509,39 @@ class _OnboardingWizard:
         function_id = self._riva_function_input.text().strip()
         if server and function_id:
             return True
-        self._qt_widgets.QMessageBox.warning(
-            self._wizard,
-            "Validation",
-            "Riva server and function ID cannot be empty.",
-        )
+        self._show_invalid("Fill in both the server address and the function ID.")
         return False
 
     def _validate_nemotron_page(self) -> bool:
         fields = [
-            ("NEMOTRON_BASE_URL", self._nem_base_url_input.text().strip()),
-            ("NEMOTRON_MODEL", self._nem_model_input.text().strip()),
+            ("an API endpoint", self._nem_base_url_input.text().strip()),
+            ("a model name", self._nem_model_input.text().strip()),
         ]
         for label, value in fields:
             if not value:
-                self._qt_widgets.QMessageBox.warning(
-                    self._wizard,
-                    "Validation",
-                    f"{label} cannot be empty.",
-                )
+                self._show_invalid(f"The cleanup model needs {label}.")
                 return False
 
         if _parse_float(self._temperature_input.text()) is None:
-            self._show_invalid("NEMOTRON_TEMPERATURE must be a valid number.")
+            self._show_invalid("Temperature must be a number.")
             return False
         top_p = _parse_float(self._top_p_input.text())
         if top_p is None or top_p < 0.0 or top_p > 1.0:
-            self._show_invalid("NEMOTRON_TOP_P must be in range 0..1.")
+            self._show_invalid("Top-p must be a number between 0 and 1.")
             return False
         if _parse_int(self._max_tokens_input.text()) is None:
-            self._show_invalid("NEMOTRON_MAX_TOKENS must be a valid integer.")
+            self._show_invalid("Response token limit must be a whole number.")
             return False
         if _parse_int(self._reasoning_budget_input.text()) is None:
-            self._show_invalid("NEMOTRON_REASONING_BUDGET must be a valid integer.")
+            self._show_invalid("Thinking budget must be a whole number.")
             return False
         if _parse_int(self._reasoning_print_limit_input.text()) is None:
-            self._show_invalid(
-                "NEMOTRON_REASONING_PRINT_LIMIT must be a valid integer."
-            )
+            self._show_invalid("Thinking preview limit must be a whole number.")
             return False
         return True
 
     def _show_invalid(self, message: str) -> None:
-        self._qt_widgets.QMessageBox.warning(self._wizard, "Validation", message)
+        self._qt_widgets.QMessageBox.warning(self._wizard, "Check this page", message)
 
     def _init_review_page(self) -> None:
         # Only what this configuration will actually use: a local-only setup has
@@ -539,9 +557,12 @@ class _OnboardingWizard:
             lines.append(f"Speech: NVIDIA Riva cloud, {settings.riva_server}")
 
         if settings.nvidia_api_key:
-            lines.append(f"SMART rewrite: available, {settings.nemotron_model}")
+            lines.append(
+                f"Transcript cleanup: ready with {settings.nemotron_model}, "
+                "switch it on from the tray menu"
+            )
         else:
-            lines.append("SMART rewrite: unavailable until you add an NVIDIA API key")
+            lines.append("Transcript cleanup: needs an NVIDIA API key before it can run")
 
         lines.append(f"Saved to {get_config_path()}")
         self._review_label.setText("\n".join(lines))
