@@ -75,6 +75,27 @@ class _OnboardingWizard:
         self._install_shortcuts()
 
     def _apply_visual_theme(self) -> None:
+        qt_gui = self._qt_gui
+        background = qt_gui.QColor("#121214")
+        surface = qt_gui.QColor("#18181a")
+        text = qt_gui.QColor("#e8e8ea")
+        muted = qt_gui.QColor("#7a7a82")
+        palette = qt_gui.QPalette()
+        palette.setColor(qt_gui.QPalette.Window, background)
+        palette.setColor(qt_gui.QPalette.Base, background)
+        palette.setColor(qt_gui.QPalette.Button, surface)
+        palette.setColor(qt_gui.QPalette.WindowText, text)
+        palette.setColor(qt_gui.QPalette.Text, text)
+        palette.setColor(qt_gui.QPalette.ButtonText, text)
+        palette.setColor(qt_gui.QPalette.PlaceholderText, muted)
+        palette.setColor(qt_gui.QPalette.Highlight, qt_gui.QColor("#3d3d40"))
+        palette.setColor(qt_gui.QPalette.HighlightedText, text)
+        self._chrome_palette = palette
+        # ModernStyle paints its title/subtitle band from the palette, never
+        # from the stylesheet. Without an explicit dark palette that band keeps
+        # the system's colours, so on a light desktop the header text below
+        # renders white on white.
+        self._wizard.setPalette(palette)
         self._wizard.setStyleSheet(
             """
             QWizard {
@@ -85,11 +106,14 @@ class _OnboardingWizard:
             QWizardPage {
                 background: transparent;
             }
-            QLabel {
+            /* Scoped to page bodies: a bare QLabel rule also hits the wizard's
+               own header title/subtitle, forcing them white over a header band
+               the stylesheet cannot reach and overriding Qt's header font. */
+            QWizardPage QLabel {
                 color: rgba(255, 255, 255, 0.9);
                 font-size: 14px;
             }
-            QLabel#onboardingMeta {
+            QWizardPage QLabel#onboardingMeta {
                 color: rgba(255, 255, 255, 0.5);
                 font-size: 13px;
                 letter-spacing: 0.3px;
@@ -105,6 +129,7 @@ class _OnboardingWizard:
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 8px;
                 color: rgba(255, 255, 255, 0.9);
+                placeholder-text-color: #7a7a82;
                 padding: 10px 14px;
                 font-size: 14px;
                 selection-background-color: rgba(255, 255, 255, 0.2);
@@ -184,6 +209,25 @@ class _OnboardingWizard:
             }
             """
         )
+        # A stylesheet makes QStyleSheetStyle re-seed every styled descendant
+        # from the *application* palette, so the palette set above never
+        # reaches the header band. Qt builds that band lazily on first show,
+        # hence repainting the chrome whenever the page changes.
+        self._wizard.currentIdChanged.connect(self._apply_chrome_palette)
+
+    def _apply_chrome_palette(self) -> None:
+        # Plain QWidget children are wizard chrome only: the ModernStyle header
+        # band and its containers. Pages and real controls are subclasses and
+        # keep the stylesheet's own colours.
+        widget_cls = self._qt_widgets.QWidget
+        label_cls = self._qt_widgets.QLabel
+        for child in self._wizard.findChildren(widget_cls):
+            if type(child) is not widget_cls:
+                continue
+            child.setPalette(self._chrome_palette)
+            for grandchild in child.children():
+                if isinstance(grandchild, label_cls):
+                    grandchild.setPalette(self._chrome_palette)
 
     def _install_shortcuts(self) -> None:
         esc_shortcut = self._qt_gui.QShortcut(
