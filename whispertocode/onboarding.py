@@ -7,7 +7,6 @@ from .config_store import AppSettings, get_config_path, normalize_stt_backend
 from .constants import (
     LOCAL_MODELS,
     NEMOTRON_REASONING_BUDGET_MAX,
-    NEMOTRON_REASONING_PRINT_LIMIT_MAX,
     STT_BACKEND_LOCAL,
     STT_BACKEND_RIVA,
 )
@@ -43,7 +42,6 @@ _ADVANCED_FIELDS = (
     "nemotron_top_p",
     "nemotron_max_tokens",
     "nemotron_reasoning_budget",
-    "nemotron_reasoning_print_limit",
     "nemotron_enable_thinking",
 )
 
@@ -632,12 +630,6 @@ class _OnboardingWizard:
             NEMOTRON_REASONING_BUDGET_MAX,
             128,
         )
-        self._reasoning_print_limit_spin = self._build_whole_field(
-            self._initial.nemotron_reasoning_print_limit,
-            0,
-            NEMOTRON_REASONING_PRINT_LIMIT_MAX,
-            100,
-        )
         self._enable_thinking_checkbox = qt_widgets.QCheckBox(
             "Let the model think before it rewrites"
         )
@@ -660,13 +652,6 @@ class _OnboardingWizard:
             "",
             self._build_caption(
                 "Tokens the model may spend thinking before it answers."
-            ),
-        )
-        nem_form.addRow("Thinking preview limit", self._reasoning_print_limit_spin)
-        nem_form.addRow(
-            "",
-            self._build_caption(
-                "Debug console only. It never changes the text that gets typed."
             ),
         )
         nem_form.addRow(self._enable_thinking_checkbox)
@@ -913,6 +898,5 @@ class _OnboardingWizard:
             nemotron_top_p=self._top_p_spin.value(),
             nemotron_max_tokens=self._max_tokens_spin.value(),
             nemotron_reasoning_budget=self._reasoning_budget_spin.value(),
-            nemotron_reasoning_print_limit=self._reasoning_print_limit_spin.value(),
             nemotron_enable_thinking=self._enable_thinking_checkbox.isChecked(),
         )

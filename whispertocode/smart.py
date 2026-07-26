@@ -1,4 +1,3 @@
-import sys
 from typing import Any, Callable, List, Optional, Tuple
 
 from .utils import _coerce_stream_text
@@ -52,7 +51,6 @@ def rewrite_text_streaming(
     max_tokens: int,
     reasoning_budget: int,
     enable_thinking: bool,
-    reasoning_print_limit: int,
     type_char: Callable[[str], None],
 ) -> Tuple[bool, Optional[Exception]]:
     typed_any = False

@@ -7,8 +7,6 @@ from typing import Any, Mapping
 from .constants import (
     NEMOTRON_REASONING_BUDGET_DEFAULT,
     NEMOTRON_REASONING_BUDGET_MAX,
-    NEMOTRON_REASONING_PRINT_LIMIT_DEFAULT,
-    NEMOTRON_REASONING_PRINT_LIMIT_MAX,
     OUTPUT_MODE_SMART,
     STT_BACKEND_LOCAL,
     STT_BACKEND_RIVA,
@@ -36,7 +34,6 @@ class AppSettings:
     nemotron_top_p: float = 1.0
     nemotron_max_tokens: int = 16384
     nemotron_reasoning_budget: int = NEMOTRON_REASONING_BUDGET_DEFAULT
-    nemotron_reasoning_print_limit: int = NEMOTRON_REASONING_PRINT_LIMIT_DEFAULT
     nemotron_enable_thinking: bool = True
 
 
@@ -96,7 +93,6 @@ def load_env_fallback(env: Mapping[str, str] | None = None) -> dict[str, str]:
         "NEMOTRON_TOP_P",
         "NEMOTRON_MAX_TOKENS",
         "NEMOTRON_REASONING_BUDGET",
-        "NEMOTRON_REASONING_PRINT_LIMIT",
         "NEMOTRON_ENABLE_THINKING",
     ]
     result: dict[str, str] = {}
@@ -192,16 +188,6 @@ def resolve_settings(config_json: Mapping[str, Any], env_map: Mapping[str, str])
     )
     reasoning_budget = max(0, min(reasoning_budget, NEMOTRON_REASONING_BUDGET_MAX))
 
-    reasoning_print_limit = _pick_int(
-        "nemotron_reasoning_print_limit",
-        "NEMOTRON_REASONING_PRINT_LIMIT",
-        NEMOTRON_REASONING_PRINT_LIMIT_DEFAULT,
-    )
-    reasoning_print_limit = max(
-        0,
-        min(reasoning_print_limit, NEMOTRON_REASONING_PRINT_LIMIT_MAX),
-    )
-
     return AppSettings(
         nvidia_api_key=_pick_str(
             "nvidia_api_key",
@@ -242,7 +228,6 @@ def resolve_settings(config_json: Mapping[str, Any], env_map: Mapping[str, str])
             16384,
         ),
         nemotron_reasoning_budget=reasoning_budget,
-        nemotron_reasoning_print_limit=reasoning_print_limit,
         nemotron_enable_thinking=_pick_bool(
             "nemotron_enable_thinking",
             "NEMOTRON_ENABLE_THINKING",

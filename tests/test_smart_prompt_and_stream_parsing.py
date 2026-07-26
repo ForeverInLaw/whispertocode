@@ -60,7 +60,6 @@ def _make_app() -> "ptt_whisper.HoldToTalkRiva":
     app._nemotron_max_tokens = 16384
     app._nemotron_reasoning_budget = 16384
     app._nemotron_enable_thinking = True
-    app._reasoning_print_limit = 400
     return app
 
 
@@ -135,9 +134,8 @@ class PromptAndStreamTests(unittest.TestCase):
         self.assertEqual(typed_text, "hello world")
         self.assertTrue(any(call.args and call.args[0] == "think " for call in print_mock.call_args_list))
 
-    def test_stream_does_not_truncate_reasoning_output(self):
+    def test_reasoning_only_chunk_prints_but_types_nothing(self):
         app = _make_app()
-        app._reasoning_print_limit = 1
 
         chunk = types.SimpleNamespace(
             choices=[
@@ -158,7 +156,6 @@ class PromptAndStreamTests(unittest.TestCase):
         self.assertIsNone(error)
         printed_values = [call.args[0] for call in print_mock.call_args_list if call.args]
         self.assertIn("very long reasoning", printed_values)
-        self.assertNotIn("[reasoning truncated]", printed_values)
 
 
 if __name__ == "__main__":

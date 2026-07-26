@@ -553,7 +553,6 @@ ADVANCED = (
     ("nemotron_top_p", 0.8),
     ("nemotron_max_tokens", 999),
     ("nemotron_reasoning_budget", 7),
-    ("nemotron_reasoning_print_limit", 11),
     ("nemotron_enable_thinking", False),
 )
 for field, value in ADVANCED:

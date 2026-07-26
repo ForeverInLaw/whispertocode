@@ -20,7 +20,6 @@ from .config_store import (
 )
 from .constants import (
     NEMOTRON_REASONING_BUDGET_MAX,
-    NEMOTRON_REASONING_PRINT_LIMIT_MAX,
     OUTPUT_MODE_RAW,
     OUTPUT_MODE_SMART,
     OVERLAY_FPS,
@@ -159,11 +158,6 @@ class HoldToTalkRiva:
                 ),
                 file=sys.stderr,
             )
-        raw_reasoning_print_limit = int(settings.nemotron_reasoning_print_limit)
-        self._reasoning_print_limit = max(
-            0,
-            min(raw_reasoning_print_limit, NEMOTRON_REASONING_PRINT_LIMIT_MAX),
-        )
         self._nemotron_enable_thinking = bool(settings.nemotron_enable_thinking)
 
     @staticmethod
@@ -477,7 +471,6 @@ class HoldToTalkRiva:
             max_tokens=self._nemotron_max_tokens,
             reasoning_budget=reasoning_budget,
             enable_thinking=self._nemotron_enable_thinking,
-            reasoning_print_limit=self._reasoning_print_limit,
             type_char=self._keyboard.type,
         )
 

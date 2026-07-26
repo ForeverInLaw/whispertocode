@@ -552,7 +552,6 @@ class ModesAndFallbackTests(unittest.TestCase):
                     nemotron_top_p=1.0,
                     nemotron_max_tokens=16384,
                     nemotron_reasoning_budget=4096,
-                    nemotron_reasoning_print_limit=600,
                     nemotron_enable_thinking=True,
                 ),
             ),
