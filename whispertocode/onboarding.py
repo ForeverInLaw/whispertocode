@@ -21,6 +21,19 @@ _PAGE_RIVA = 1
 _PAGE_CLEANUP = 2
 _PAGE_REVIEW = 3
 
+# A stored key is shown as a fingerprint so the user can tell *which* key is
+# saved without the dialog ever rendering the secret. Four trailing characters
+# are enough to recognise a key you pasted yourself; keys too short for that to
+# leave anything hidden are masked whole.
+_KEY_FINGERPRINT_TAIL = 4
+_KEY_FINGERPRINT_MIN_LEN = 8
+
+
+def _key_fingerprint(key: str) -> str:
+    if len(key) >= _KEY_FINGERPRINT_MIN_LEN:
+        return "•" * _KEY_FINGERPRINT_TAIL + key[-_KEY_FINGERPRINT_TAIL:]
+    return "•" * _KEY_FINGERPRINT_TAIL * 2
+
 
 def run_onboarding(initial: AppSettings) -> Optional[AppSettings]:
     try:
@@ -109,6 +122,10 @@ class _OnboardingWizard:
         self._qt_widgets = qt_widgets
         self._initial = initial
         self._existing_api_key = initial.nvidia_api_key.strip()
+        # Armed by the Remove button, undone by the same button or by typing a
+        # replacement. Nothing is written until Save, so this stays a staged
+        # intent rather than an action needing a confirmation prompt.
+        self._key_removed = False
 
         wizard = qt_widgets.QWizard()
         wizard.setWindowTitle("WhisperToCode Setup")
@@ -322,6 +339,14 @@ class _OnboardingWizard:
                 background: rgba(255, 255, 255, 0.15);
                 border: 1px solid rgba(255, 255, 255, 0.3);
             }
+            /* Sits inside a form row next to its field, so it drops the
+               wizard-footer button's 100px floor and heavier padding while
+               keeping the same surface, border and hover states. */
+            QWizardPage QPushButton#onboardingInlineButton {
+                min-width: 0;
+                padding: 8px 14px;
+                font-size: 13px;
+            }
             QPushButton#qt_wizard_nextbutton, QPushButton#qt_wizard_finishbutton {
                 background: #ffffff;
                 border: 1px solid #ffffff;
@@ -373,7 +398,8 @@ class _OnboardingWizard:
         self._api_key_page.setTitle("Speech backend")
         if self._existing_api_key:
             self._api_key_page.setSubTitle(
-                "Choose how your speech is transcribed. The key you saved earlier stays in place."
+                "Choose how your speech is transcribed. Your saved key stays put "
+                "unless you replace or remove it."
             )
         else:
             self._api_key_page.setSubTitle(
@@ -416,19 +442,28 @@ class _OnboardingWizard:
         key_form.addRow("Model folder", self._local_model_dir_input)
         self._key_input = qt_widgets.QLineEdit()
         self._key_input.setEchoMode(qt_widgets.QLineEdit.PasswordEchoOnEdit)
-        self._key_input.setPlaceholderText("nvapi-...")
         self._api_key_page.registerField("nvidia_api_key", self._key_input)
-        key_form.addRow("NVIDIA API key", self._key_input)
-        if self._existing_api_key:
-            key_caption = "NVIDIA_API_KEY — a key is already saved. Leave this blank to keep it."
-        else:
-            key_caption = (
-                "NVIDIA_API_KEY — required for cloud speech. Local speech works without it, "
-                "unless you also want the app to tidy up what you dictated."
-            )
-        key_form.addRow("", self._build_caption(key_caption))
+        self._remove_key_button = qt_widgets.QPushButton()
+        self._remove_key_button.setObjectName("onboardingInlineButton")
+        # Only meaningful when there is something to remove; the toggle guards
+        # itself too, so the hidden button can never arm a phantom removal.
+        self._remove_key_button.setVisible(bool(self._existing_api_key))
+        self._remove_key_button.clicked.connect(self._toggle_key_removal)
+        self._key_input.textChanged.connect(self._on_key_text_changed)
+        # A QFrame, not a bare QWidget: _apply_chrome_palette repaints every
+        # exact-QWidget child as wizard chrome, and this row is page content.
+        key_row = qt_widgets.QFrame()
+        key_row_layout = qt_widgets.QHBoxLayout(key_row)
+        key_row_layout.setContentsMargins(0, 0, 0, 0)
+        key_row_layout.setSpacing(8)
+        key_row_layout.addWidget(self._key_input, 1)
+        key_row_layout.addWidget(self._remove_key_button, 0)
+        key_form.addRow("NVIDIA API key", key_row)
+        self._key_caption = self._build_caption("")
+        key_form.addRow("", self._key_caption)
         self._key_error = self._build_error()
         key_form.addRow("", self._key_error)
+        self._sync_key_removal_ui()
         key_card.setLayout(key_form)
         key_layout.addWidget(key_card)
         # Outside the card on purpose: this is an escape hatch to further pages,
@@ -452,10 +487,17 @@ class _OnboardingWizard:
         key_layout.addLayout(customize_layout)
         key_layout.addStretch(1)
         self._api_key_page.setLayout(key_layout)
+        # bind() connects last, so its revalidation runs after the two handlers
+        # attached above: Qt fires direct connections in connection order, and
+        # both of those settle _key_removed before Next is recomputed.
         self._api_key_page.bind(
             self._api_key_problems,
             self._key_error,
-            (self._key_input.textChanged, self._backend_combo.currentIndexChanged),
+            (
+                self._key_input.textChanged,
+                self._backend_combo.currentIndexChanged,
+                self._remove_key_button.clicked,
+            ),
         )
 
         self._riva_page = validating_page()
@@ -659,8 +701,64 @@ class _OnboardingWizard:
     def _selected_backend(self) -> str:
         return normalize_stt_backend(self._backend_combo.currentData())
 
+    def _toggle_key_removal(self) -> None:
+        if not self._existing_api_key:
+            return
+        self._key_removed = not self._key_removed
+        if self._key_removed:
+            # A typed replacement and a removal are contradictory; the click is
+            # the more recent intent, so the field yields to it.
+            self._key_input.clear()
+        self._sync_key_removal_ui()
+
+    def _on_key_text_changed(self, text: str) -> None:
+        # Typing a replacement over an armed removal disarms it: the key is
+        # being changed, not deleted. Clearing the field again does not re-arm,
+        # or the removal could never be undone by hand.
+        if self._key_removed and text.strip():
+            self._key_removed = False
+            self._sync_key_removal_ui()
+
+    def _sync_key_removal_ui(self) -> None:
+        if not self._existing_api_key:
+            self._key_input.setPlaceholderText("nvapi-...")
+            self._key_caption.setText(
+                "NVIDIA_API_KEY — required for cloud speech. Local speech works without it, "
+                "unless you also want the app to tidy up what you dictated."
+            )
+            return
+        if self._key_removed:
+            self._remove_key_button.setText("Undo")
+            self._key_input.setPlaceholderText("Saved key will be removed when you save")
+            self._key_caption.setText(
+                "NVIDIA_API_KEY — the saved key goes when you save. Click Undo to keep it, "
+                "or type a new key to replace it instead."
+            )
+            return
+        self._remove_key_button.setText("Remove")
+        fingerprint = _key_fingerprint(self._existing_api_key)
+        self._key_input.setPlaceholderText(f"Saved key {fingerprint}")
+        self._key_caption.setText(
+            f"NVIDIA_API_KEY — {fingerprint} is saved. Leave this blank to keep it, "
+            "type to replace it, or click Remove."
+        )
+
+    def _effective_api_key(self) -> str:
+        """The key this wizard would save right now, across all three states.
+
+        Typed text replaces, an armed removal blanks, and an untouched blank
+        field keeps whatever was already stored. Validation, the review page and
+        collect_settings all read the answer from here so they cannot disagree.
+        """
+        entered = self._key_input.text().strip()
+        if entered:
+            return entered
+        if self._key_removed:
+            return ""
+        return self._existing_api_key
+
     def _api_key_problems(self) -> list[str]:
-        if self._key_input.text().strip() or self._existing_api_key:
+        if self._effective_api_key():
             return []
         if self._selected_backend() == STT_BACKEND_LOCAL:
             return []
@@ -719,8 +817,7 @@ class _OnboardingWizard:
         return int(self._wizard.exec())
 
     def collect_settings(self) -> AppSettings:
-        entered_key = self._key_input.text().strip()
-        key = entered_key if entered_key else self._existing_api_key
+        key = self._effective_api_key()
         backend = self._selected_backend()
         local_model = self._local_model_combo.currentData()
         local_model_dir = self._local_model_dir_input.text().strip()

@@ -112,12 +112,23 @@ def resolve_settings(config_json: Mapping[str, Any], env_map: Mapping[str, str])
     cfg = dict(config_json or {})
     env = dict(env_map or {})
 
-    def _pick_str(cfg_key: str, env_key: str, default: str) -> str:
+    def _pick_str(
+        cfg_key: str,
+        env_key: str,
+        default: str,
+        *,
+        empty_is_a_choice: bool = False,
+    ) -> str:
         cfg_value = cfg.get(cfg_key)
         if isinstance(cfg_value, str):
             stripped = cfg_value.strip()
             if stripped:
                 return stripped
+            # An empty string normally means "unset, fall through to the env".
+            # For a removed API key it means the user deleted it on purpose, and
+            # falling through would resurrect it from .env on the next launch.
+            if empty_is_a_choice and cfg_key in cfg:
+                return ""
         env_value = env.get(env_key)
         if isinstance(env_value, str) and env_value.strip():
             return env_value.strip()
@@ -192,7 +203,12 @@ def resolve_settings(config_json: Mapping[str, Any], env_map: Mapping[str, str])
     )
 
     return AppSettings(
-        nvidia_api_key=_pick_str("nvidia_api_key", "NVIDIA_API_KEY", ""),
+        nvidia_api_key=_pick_str(
+            "nvidia_api_key",
+            "NVIDIA_API_KEY",
+            "",
+            empty_is_a_choice=True,
+        ),
         stt_backend=normalize_stt_backend(
             _pick_str("stt_backend", "STT_BACKEND", DEFAULT_STT_BACKEND)
         ),

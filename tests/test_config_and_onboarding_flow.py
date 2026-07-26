@@ -209,6 +209,25 @@ class ConfigAndOnboardingFlowTests(unittest.TestCase):
         self.assertEqual(config_store.normalize_stt_backend("nonsense"), "riva")
         self.assertEqual(config_store.normalize_stt_backend(""), "riva")
 
+    def test_removed_api_key_is_not_resurrected_from_env(self):
+        resolved = config_store.resolve_settings(
+            {"nvidia_api_key": ""},
+            {"NVIDIA_API_KEY": "from-env"},
+        )
+        self.assertEqual(resolved.nvidia_api_key, "")
+
+    def test_absent_api_key_still_falls_back_to_env(self):
+        resolved = config_store.resolve_settings({}, {"NVIDIA_API_KEY": "from-env"})
+        self.assertEqual(resolved.nvidia_api_key, "from-env")
+
+    def test_empty_config_value_still_falls_back_for_other_fields(self):
+        resolved = config_store.resolve_settings(
+            {"riva_server": "", "nemotron_model": ""},
+            {"RIVA_SERVER": "env-server"},
+        )
+        self.assertEqual(resolved.riva_server, "env-server")
+        self.assertEqual(resolved.nemotron_model, config_store.DEFAULT_NEMOTRON_MODEL)
+
     def test_resolve_settings_prefers_config_over_env(self):
         config_json = {
             "nvidia_api_key": "from-config",
