@@ -4,7 +4,13 @@ from dataclasses import replace
 from typing import Optional
 
 from .config_store import AppSettings, get_config_path, normalize_stt_backend
-from .constants import LOCAL_MODELS, STT_BACKEND_LOCAL, STT_BACKEND_RIVA
+from .constants import (
+    LOCAL_MODELS,
+    NEMOTRON_REASONING_BUDGET_MAX,
+    NEMOTRON_REASONING_PRINT_LIMIT_MAX,
+    STT_BACKEND_LOCAL,
+    STT_BACKEND_RIVA,
+)
 from .local_asr import default_model_dir
 
 
@@ -137,6 +143,69 @@ class _OnboardingWizard:
             QLineEdit:focus {
                 border: 1px solid rgba(255, 255, 255, 0.4);
                 background: #1a1a1c;
+            }
+            QSpinBox, QDoubleSpinBox {
+                background: #121214;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
+                color: rgba(255, 255, 255, 0.9);
+                padding: 10px 14px;
+                font-size: 14px;
+                selection-background-color: rgba(255, 255, 255, 0.2);
+            }
+            QSpinBox:focus, QDoubleSpinBox:focus {
+                border: 1px solid rgba(255, 255, 255, 0.4);
+                background: #1a1a1c;
+            }
+            /* Unstyled ::up-button / ::down-button keep the native light
+               chrome, which reads as two grey chips on the dark field. */
+            QSpinBox::up-button, QDoubleSpinBox::up-button,
+            QSpinBox::down-button, QDoubleSpinBox::down-button {
+                subcontrol-origin: border;
+                width: 22px;
+                background: rgba(255, 255, 255, 0.06);
+                border: none;
+                border-left: 1px solid rgba(255, 255, 255, 0.12);
+                margin: 1px;
+            }
+            QSpinBox::up-button, QDoubleSpinBox::up-button {
+                subcontrol-position: top right;
+                border-top-right-radius: 7px;
+            }
+            QSpinBox::down-button, QDoubleSpinBox::down-button {
+                subcontrol-position: bottom right;
+                border-bottom-right-radius: 7px;
+            }
+            QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+            QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+                background: rgba(255, 255, 255, 0.12);
+            }
+            QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed,
+            QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed {
+                background: rgba(255, 255, 255, 0.2);
+            }
+            /* Arrows drawn as CSS border triangles: Qt stylesheets can only
+               load arrow images from files or :/resources, and this dialog
+               ships neither. */
+            QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+                width: 0;
+                height: 0;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-bottom: 5px solid rgba(255, 255, 255, 0.75);
+            }
+            QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+                width: 0;
+                height: 0;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid rgba(255, 255, 255, 0.75);
+            }
+            QSpinBox::up-arrow:off, QDoubleSpinBox::up-arrow:off {
+                border-bottom: 5px solid rgba(255, 255, 255, 0.25);
+            }
+            QSpinBox::down-arrow:off, QDoubleSpinBox::down-arrow:off {
+                border-top: 5px solid rgba(255, 255, 255, 0.25);
             }
             QComboBox {
                 background: #121214;
@@ -370,18 +439,28 @@ class _OnboardingWizard:
         nem_form.setSpacing(10)
         self._nem_base_url_input = qt_widgets.QLineEdit(self._initial.nemotron_base_url)
         self._nem_model_input = qt_widgets.QLineEdit(self._initial.nemotron_model)
-        self._temperature_input = qt_widgets.QLineEdit(
-            str(self._initial.nemotron_temperature)
+        # Bounded so the wizard cannot offer a value the app would refuse or
+        # silently clamp; the two reasoning fields reuse the app's own maxima.
+        self._temperature_spin = self._build_decimal_field(
+            self._initial.nemotron_temperature, 0.0, 2.0, 0.05
         )
-        self._top_p_input = qt_widgets.QLineEdit(str(self._initial.nemotron_top_p))
-        self._max_tokens_input = qt_widgets.QLineEdit(
-            str(self._initial.nemotron_max_tokens)
+        self._top_p_spin = self._build_decimal_field(
+            self._initial.nemotron_top_p, 0.0, 1.0, 0.05
         )
-        self._reasoning_budget_input = qt_widgets.QLineEdit(
-            str(self._initial.nemotron_reasoning_budget)
+        self._max_tokens_spin = self._build_whole_field(
+            self._initial.nemotron_max_tokens, 1, 131072, 256
         )
-        self._reasoning_print_limit_input = qt_widgets.QLineEdit(
-            str(self._initial.nemotron_reasoning_print_limit)
+        self._reasoning_budget_spin = self._build_whole_field(
+            self._initial.nemotron_reasoning_budget,
+            0,
+            NEMOTRON_REASONING_BUDGET_MAX,
+            128,
+        )
+        self._reasoning_print_limit_spin = self._build_whole_field(
+            self._initial.nemotron_reasoning_print_limit,
+            0,
+            NEMOTRON_REASONING_PRINT_LIMIT_MAX,
+            100,
         )
         self._enable_thinking_checkbox = qt_widgets.QCheckBox(
             "Let the model think before it rewrites"
@@ -391,25 +470,23 @@ class _OnboardingWizard:
         nem_form.addRow("", self._build_caption("NEMOTRON_BASE_URL"))
         nem_form.addRow("Model", self._nem_model_input)
         nem_form.addRow("", self._build_caption("NEMOTRON_MODEL"))
-        nem_form.addRow("Temperature", self._temperature_input)
-        nem_form.addRow("Top-p", self._top_p_input)
+        nem_form.addRow("Temperature", self._temperature_spin)
+        nem_form.addRow("Top-p", self._top_p_spin)
         nem_form.addRow(
             "",
             self._build_caption(
-                "Narrows word choice to the most likely options. 1.0 leaves it wide open. "
-                "Must be between 0 and 1."
+                "Narrows word choice to the most likely options. 1.0 leaves it wide open."
             ),
         )
-        nem_form.addRow("Response token limit", self._max_tokens_input)
-        nem_form.addRow("Thinking budget", self._reasoning_budget_input)
+        nem_form.addRow("Response token limit", self._max_tokens_spin)
+        nem_form.addRow("Thinking budget", self._reasoning_budget_spin)
         nem_form.addRow(
             "",
             self._build_caption(
-                "Tokens the model may spend thinking before it answers. "
-                "Anything above 4096 is lowered to 4096."
+                "Tokens the model may spend thinking before it answers."
             ),
         )
-        nem_form.addRow("Thinking preview limit", self._reasoning_print_limit_input)
+        nem_form.addRow("Thinking preview limit", self._reasoning_print_limit_spin)
         nem_form.addRow(
             "",
             self._build_caption(
@@ -472,6 +549,23 @@ class _OnboardingWizard:
         caption.setWordWrap(True)
         return caption
 
+    def _build_whole_field(self, value: int, low: int, high: int, step: int):
+        """Whole-number field whose range makes the invalid states untypable."""
+        box = self._qt_widgets.QSpinBox()
+        box.setRange(low, high)
+        box.setSingleStep(step)
+        box.setValue(int(value))
+        return box
+
+    def _build_decimal_field(self, value: float, low: float, high: float, step: float):
+        """Same, for the sampling knobs that are fractions."""
+        box = self._qt_widgets.QDoubleSpinBox()
+        box.setDecimals(2)
+        box.setRange(low, high)
+        box.setSingleStep(step)
+        box.setValue(float(value))
+        return box
+
     def _mode_next_id(self) -> int:
         if not self._customize_checkbox.isChecked():
             return 4
@@ -521,23 +615,8 @@ class _OnboardingWizard:
             if not value:
                 self._show_invalid(f"The cleanup model needs {label}.")
                 return False
-
-        if _parse_float(self._temperature_input.text()) is None:
-            self._show_invalid("Temperature must be a number.")
-            return False
-        top_p = _parse_float(self._top_p_input.text())
-        if top_p is None or top_p < 0.0 or top_p > 1.0:
-            self._show_invalid("Top-p must be a number between 0 and 1.")
-            return False
-        if _parse_int(self._max_tokens_input.text()) is None:
-            self._show_invalid("Response token limit must be a whole number.")
-            return False
-        if _parse_int(self._reasoning_budget_input.text()) is None:
-            self._show_invalid("Thinking budget must be a whole number.")
-            return False
-        if _parse_int(self._reasoning_print_limit_input.text()) is None:
-            self._show_invalid("Thinking preview limit must be a whole number.")
-            return False
+        # The numeric fields need no check: their spin boxes cannot hold a value
+        # outside the range the app accepts.
         return True
 
     def _show_invalid(self, message: str) -> None:
@@ -586,12 +665,6 @@ class _OnboardingWizard:
                 local_model_dir=local_model_dir,
             )
 
-        temperature = _parse_float(self._temperature_input.text())
-        top_p = _parse_float(self._top_p_input.text())
-        max_tokens = _parse_int(self._max_tokens_input.text())
-        reasoning_budget = _parse_int(self._reasoning_budget_input.text())
-        reasoning_print_limit = _parse_int(self._reasoning_print_limit_input.text())
-
         # replace(), not AppSettings(), so a field added later is carried over
         # instead of being silently reset for everyone who ticks Customize.
         return replace(
@@ -604,28 +677,10 @@ class _OnboardingWizard:
             riva_function_id=self._riva_function_input.text().strip(),
             nemotron_base_url=self._nem_base_url_input.text().strip(),
             nemotron_model=self._nem_model_input.text().strip(),
-            nemotron_temperature=temperature if temperature is not None else 1.0,
-            nemotron_top_p=top_p if top_p is not None else 1.0,
-            nemotron_max_tokens=max_tokens if max_tokens is not None else 16384,
-            nemotron_reasoning_budget=(
-                reasoning_budget if reasoning_budget is not None else 4096
-            ),
-            nemotron_reasoning_print_limit=(
-                reasoning_print_limit if reasoning_print_limit is not None else 600
-            ),
+            nemotron_temperature=self._temperature_spin.value(),
+            nemotron_top_p=self._top_p_spin.value(),
+            nemotron_max_tokens=self._max_tokens_spin.value(),
+            nemotron_reasoning_budget=self._reasoning_budget_spin.value(),
+            nemotron_reasoning_print_limit=self._reasoning_print_limit_spin.value(),
             nemotron_enable_thinking=self._enable_thinking_checkbox.isChecked(),
         )
-
-
-def _parse_float(raw: str) -> Optional[float]:
-    try:
-        return float(raw.strip())
-    except (TypeError, ValueError):
-        return None
-
-
-def _parse_int(raw: str) -> Optional[int]:
-    try:
-        return int(raw.strip())
-    except (TypeError, ValueError):
-        return None
