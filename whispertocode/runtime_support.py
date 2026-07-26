@@ -5,6 +5,7 @@ def startup_banner_lines(app, os_module) -> list[str]:
             "release Shift to transcribe and type."
         ),
         f"Current mode: {app._get_output_mode().upper()}",
+        f"STT backend: {getattr(app, '_stt_backend', 'riva').upper()}",
     ]
     if getattr(app, "_tray_enabled", False):
         lines.append("Tray controls: switch RAW/SMART mode, show debug console, and exit.")

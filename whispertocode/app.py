@@ -9,7 +9,15 @@ import riva.client
 import sounddevice as sd
 from pynput import keyboard
 
-from .config_store import AppSettings, load_config_json, load_env_fallback, resolve_settings, save_config_json
+from .config_store import (
+    AppSettings,
+    load_config_json,
+    load_env_fallback,
+    normalize_stt_backend,
+    requires_nvidia_key,
+    resolve_settings,
+    save_config_json,
+)
 from .constants import (
     NEMOTRON_REASONING_BUDGET_MAX,
     NEMOTRON_REASONING_PRINT_LIMIT_MAX,
@@ -18,6 +26,7 @@ from .constants import (
     OVERLAY_FPS,
     OVERLAY_HEIGHT,
     OVERLAY_WIDTH,
+    STT_BACKEND_LOCAL,
     WINDOWS_SW_HIDE,
     WINDOWS_SW_SHOW,
 )
@@ -67,7 +76,9 @@ class HoldToTalkRiva:
         settings: AppSettings,
     ) -> None:
         api_key = settings.nvidia_api_key.strip()
-        if not api_key:
+        self._output_mode = self._normalize_output_mode(output_mode)
+        self._stt_backend = normalize_stt_backend(settings.stt_backend)
+        if not api_key and requires_nvidia_key(self._stt_backend, self._output_mode):
             raise RuntimeError(
                 "NVIDIA_API_KEY is not configured. Run with --onboarding to set it."
             )
@@ -76,9 +87,11 @@ class HoldToTalkRiva:
         self.server = settings.riva_server
         self.function_id = settings.riva_function_id
         self.sample_rate = sample_rate
-        self.language = "multi" if language == "auto" else language
+        self.language = language
         self.hold_delay_sec = hold_delay_sec
-        self._output_mode = self._normalize_output_mode(output_mode)
+        self._local_model = settings.local_model.strip()
+        self._local_model_dir = settings.local_model_dir.strip()
+        self._local_transcriber = None
         self._tray_enabled = enable_tray
         self._debug_console = debug_console
         debug_keys_env = os.getenv("WTC_DEBUG_KEYS", "").strip().lower()
@@ -86,18 +99,23 @@ class HoldToTalkRiva:
         if self._debug_keys:
             print("Keyboard debug logging enabled.")
 
-        metadata = [
-            ["function-id", self.function_id],
-            ["authorization", f"Bearer {api_key}"],
-        ]
+        self.auth = None
+        self.asr_service = None
+        if self._stt_backend != STT_BACKEND_LOCAL:
+            metadata = [
+                ["function-id", self.function_id],
+                ["authorization", f"Bearer {api_key}"],
+            ]
 
-        print(f"Connecting to Riva at {self.server}...")
-        self.auth = riva.client.Auth(
-            uri=self.server,
-            use_ssl=True,
-            metadata_args=metadata,
-        )
-        self.asr_service = riva.client.ASRService(self.auth)
+            print(f"Connecting to Riva at {self.server}...")
+            self.auth = riva.client.Auth(
+                uri=self.server,
+                use_ssl=True,
+                metadata_args=metadata,
+            )
+            self.asr_service = riva.client.ASRService(self.auth)
+        else:
+            print(f"Local STT backend: whisper.cpp model '{self._local_model}'.")
 
         self._lock = threading.Lock()
         self._recording = False
@@ -160,6 +178,12 @@ class HoldToTalkRiva:
 
     def _set_output_mode(self, mode: str, source: str = "") -> None:
         normalized = self._normalize_output_mode(mode)
+        if normalized == OUTPUT_MODE_SMART and not self._api_key:
+            print(
+                "SMART rewrite needs an NVIDIA API key. Add one via Settings.",
+                file=sys.stderr,
+            )
+            return
         with self._lock:
             if self._output_mode == normalized:
                 return
@@ -344,6 +368,28 @@ class HoldToTalkRiva:
     def _stop_recording(self) -> None:
         stop_recording(self)
 
+    def _recognize(self, audio: np.ndarray) -> Tuple[str, float]:
+        if self._stt_backend != STT_BACKEND_LOCAL:
+            return recognize_audio(
+                self.asr_service,
+                audio=audio,
+                sample_rate=self.sample_rate,
+                language=self.language,
+            )
+
+        # Imported lazily: whisper.cpp is an optional extra, absent in cloud-only installs.
+        from .local_asr import load_model, transcribe
+
+        if self._local_transcriber is None:
+            print(f"Loading local model '{self._local_model}' (first run downloads it)...")
+            self._local_transcriber = load_model(self._local_model, self._local_model_dir)
+        return transcribe(
+            self._local_transcriber,
+            audio=audio,
+            sample_rate=self.sample_rate,
+            language=self.language,
+        )
+
     def _transcribe_and_type(self, audio: np.ndarray) -> None:
         with self._lock:
             if self._transcribing:
@@ -352,12 +398,7 @@ class HoldToTalkRiva:
             self._transcribing = True
 
         try:
-            text, took = recognize_audio(
-                self.asr_service,
-                audio=audio,
-                sample_rate=self.sample_rate,
-                language=self.language,
-            )
+            text, took = self._recognize(audio)
 
             if not text:
                 print("No speech recognized.")

@@ -9,17 +9,25 @@ from .constants import (
     NEMOTRON_REASONING_BUDGET_MAX,
     NEMOTRON_REASONING_PRINT_LIMIT_DEFAULT,
     NEMOTRON_REASONING_PRINT_LIMIT_MAX,
+    OUTPUT_MODE_SMART,
+    STT_BACKEND_LOCAL,
+    STT_BACKEND_RIVA,
 )
 
 DEFAULT_RIVA_SERVER = "grpc.nvcf.nvidia.com:443"
 DEFAULT_RIVA_FUNCTION_ID = "b702f636-f60c-4a3d-a6f4-f3568c13bd7d"
 DEFAULT_NEMOTRON_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_NEMOTRON_MODEL = "nvidia/nemotron-3-nano-30b-a3b"
+DEFAULT_STT_BACKEND = STT_BACKEND_RIVA
+DEFAULT_LOCAL_MODEL = "tiny"
 
 
 @dataclass(frozen=True)
 class AppSettings:
     nvidia_api_key: str = ""
+    stt_backend: str = DEFAULT_STT_BACKEND
+    local_model: str = DEFAULT_LOCAL_MODEL
+    local_model_dir: str = ""
     riva_server: str = DEFAULT_RIVA_SERVER
     riva_function_id: str = DEFAULT_RIVA_FUNCTION_ID
     nemotron_base_url: str = DEFAULT_NEMOTRON_BASE_URL
@@ -77,6 +85,9 @@ def load_env_fallback(env: Mapping[str, str] | None = None) -> dict[str, str]:
     source = env if env is not None else os.environ
     keys = [
         "NVIDIA_API_KEY",
+        "STT_BACKEND",
+        "LOCAL_MODEL",
+        "LOCAL_MODEL_DIR",
         "RIVA_SERVER",
         "RIVA_FUNCTION_ID",
         "NEMOTRON_BASE_URL",
@@ -182,6 +193,11 @@ def resolve_settings(config_json: Mapping[str, Any], env_map: Mapping[str, str])
 
     return AppSettings(
         nvidia_api_key=_pick_str("nvidia_api_key", "NVIDIA_API_KEY", ""),
+        stt_backend=normalize_stt_backend(
+            _pick_str("stt_backend", "STT_BACKEND", DEFAULT_STT_BACKEND)
+        ),
+        local_model=_pick_str("local_model", "LOCAL_MODEL", DEFAULT_LOCAL_MODEL),
+        local_model_dir=_pick_str("local_model_dir", "LOCAL_MODEL_DIR", ""),
         riva_server=_pick_str("riva_server", "RIVA_SERVER", DEFAULT_RIVA_SERVER),
         riva_function_id=_pick_str(
             "riva_function_id",
@@ -217,6 +233,19 @@ def resolve_settings(config_json: Mapping[str, Any], env_map: Mapping[str, str])
             True,
         ),
     )
+
+
+def normalize_stt_backend(value: str) -> str:
+    if (value or "").strip().lower() == STT_BACKEND_LOCAL:
+        return STT_BACKEND_LOCAL
+    return STT_BACKEND_RIVA
+
+
+def requires_nvidia_key(stt_backend: str, output_mode: str) -> bool:
+    """Local STT needs no key; SMART rewrite always goes through NVIDIA."""
+    if normalize_stt_backend(stt_backend) == STT_BACKEND_RIVA:
+        return True
+    return (output_mode or "").strip().lower() == OUTPUT_MODE_SMART
 
 
 def sys_platform_startswith(prefix: str) -> bool:

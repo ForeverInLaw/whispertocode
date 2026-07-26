@@ -1,9 +1,10 @@
-numpy>=1.26.0
-nvidia-riva-client>=2.19.0
-pynput>=1.7.7
-sounddevice>=0.4.7
-python-dotenv>=1.0.1
-openai>=1.51.0
-Pillow>=10.4.0
+numpy>=2.2
+nvidia-riva-client>=2.25.1
+pynput>=1.8.2
+sounddevice>=0.5.5
+python-dotenv>=1.2.2
+openai>=2.41,<3
+Pillow>=12.3.0
 pystray>=0.19.5
 PySide6>=6.8.0
+pywhispercpp>=1.5.0

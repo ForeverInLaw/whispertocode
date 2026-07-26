@@ -60,6 +60,12 @@ def main() -> int:
         "pystray",
         "--collect-submodules",
         "PIL",
+        # pywhispercpp puts its extension module and native libs at site-packages
+        # root, so --collect-binaries misses them; --collect-all is the blunt fix.
+        "--collect-all",
+        "pywhispercpp",
+        "--hidden-import",
+        "_pywhispercpp",
         "--hidden-import",
         "PySide6.QtCore",
         "--hidden-import",

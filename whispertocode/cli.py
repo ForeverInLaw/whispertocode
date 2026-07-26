@@ -1,6 +1,7 @@
 import argparse
 import signal
 import sys
+from dataclasses import replace
 from typing import List, Optional
 
 from dotenv import load_dotenv
@@ -10,10 +11,17 @@ from .config_store import (
     get_config_path,
     load_config_json,
     load_env_fallback,
+    requires_nvidia_key,
     resolve_settings,
     save_config_json,
 )
-from .constants import OUTPUT_MODE_RAW, OUTPUT_MODE_SMART
+from .constants import (
+    LANGUAGE_CHOICES,
+    OUTPUT_MODE_RAW,
+    OUTPUT_MODE_SMART,
+    STT_BACKEND_LOCAL,
+    STT_BACKEND_RIVA,
+)
 from .onboarding import run_onboarding
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
@@ -32,8 +40,17 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--language",
         default="auto",
-        choices=["auto", "ru", "en", "pl", "de", "es"],
-        help="Recognition language (auto for mixed multilingual input)",
+        choices=list(LANGUAGE_CHOICES),
+        help="Recognition language (auto detects the spoken language)",
+    )
+    parser.add_argument(
+        "--backend",
+        default=None,
+        choices=[STT_BACKEND_RIVA, STT_BACKEND_LOCAL],
+        help=(
+            "Speech-to-text backend for this run: riva (cloud) or local "
+            "(whisper.cpp). Defaults to the configured backend."
+        ),
     )
     parser.add_argument(
         "--hold-delay",
@@ -73,8 +90,12 @@ def main() -> int:
         config_exists = config_path.exists()
         resolved = resolve_settings(load_config_json(), load_env_fallback())
 
+        backend_override = getattr(args, "backend", None)
+        effective_backend = backend_override or resolved.stt_backend
+        needs_key = requires_nvidia_key(effective_backend, args.mode)
+
         force_onboarding = bool(getattr(args, "onboarding", False))
-        if force_onboarding or not resolved.nvidia_api_key:
+        if force_onboarding or (needs_key and not resolved.nvidia_api_key):
             onboarding_result = run_onboarding(resolved)
             if onboarding_result is None:
                 print("Onboarding canceled.", file=sys.stderr)
@@ -84,6 +105,9 @@ def main() -> int:
         elif not config_exists and resolved.nvidia_api_key:
             # Auto-migrate env-based setup to persistent config.
             save_config_json(resolved)
+
+        if backend_override:
+            resolved = replace(resolved, stt_backend=backend_override)
 
         app = HoldToTalkRiva(
             sample_rate=args.sample_rate,

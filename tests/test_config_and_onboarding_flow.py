@@ -144,6 +144,71 @@ class ConfigAndOnboardingFlowTests(unittest.TestCase):
         onboarding_mock.assert_not_called()
         save_mock.assert_called_once_with(resolved)
 
+    def test_local_backend_starts_without_api_key_in_raw_mode(self):
+        args = types.SimpleNamespace(
+            sample_rate=16000,
+            language="auto",
+            hold_delay=0.5,
+            mode="raw",
+            backend="local",
+            no_tray=False,
+            debug_console=False,
+            onboarding=False,
+        )
+        app = mock.Mock()
+        with (
+            mock.patch("whispertocode.cli.parse_args", return_value=args),
+            mock.patch("whispertocode.cli.get_config_path", return_value=types.SimpleNamespace(exists=lambda: True)),
+            mock.patch("whispertocode.cli.resolve_settings", return_value=config_store.AppSettings()),
+            mock.patch("whispertocode.cli.load_config_json", return_value={}),
+            mock.patch("whispertocode.cli.load_env_fallback", return_value={}),
+            mock.patch("whispertocode.cli.run_onboarding") as onboarding_mock,
+            mock.patch("whispertocode.cli.HoldToTalkRiva", return_value=app) as app_ctor_mock,
+            mock.patch("whispertocode.cli.signal.signal"),
+        ):
+            code = cli_module.main()
+
+        self.assertEqual(code, 0)
+        onboarding_mock.assert_not_called()
+        self.assertEqual(app_ctor_mock.call_args.kwargs["settings"].stt_backend, "local")
+
+    def test_local_backend_still_demands_key_for_smart_mode(self):
+        args = types.SimpleNamespace(
+            sample_rate=16000,
+            language="auto",
+            hold_delay=0.5,
+            mode="smart",
+            backend="local",
+            no_tray=False,
+            debug_console=False,
+            onboarding=False,
+        )
+        with (
+            mock.patch("whispertocode.cli.parse_args", return_value=args),
+            mock.patch("whispertocode.cli.get_config_path", return_value=types.SimpleNamespace(exists=lambda: True)),
+            mock.patch("whispertocode.cli.resolve_settings", return_value=config_store.AppSettings()),
+            mock.patch("whispertocode.cli.load_config_json", return_value={}),
+            mock.patch("whispertocode.cli.load_env_fallback", return_value={}),
+            mock.patch("whispertocode.cli.run_onboarding", return_value=None) as onboarding_mock,
+            mock.patch("whispertocode.cli.HoldToTalkRiva"),
+            mock.patch("builtins.print"),
+        ):
+            code = cli_module.main()
+
+        self.assertEqual(code, 1)
+        onboarding_mock.assert_called_once()
+
+    def test_requires_nvidia_key_matrix(self):
+        self.assertTrue(config_store.requires_nvidia_key("riva", "raw"))
+        self.assertTrue(config_store.requires_nvidia_key("riva", "smart"))
+        self.assertFalse(config_store.requires_nvidia_key("local", "raw"))
+        self.assertTrue(config_store.requires_nvidia_key("local", "smart"))
+
+    def test_normalize_stt_backend_falls_back_to_riva(self):
+        self.assertEqual(config_store.normalize_stt_backend("LOCAL"), "local")
+        self.assertEqual(config_store.normalize_stt_backend("nonsense"), "riva")
+        self.assertEqual(config_store.normalize_stt_backend(""), "riva")
+
     def test_resolve_settings_prefers_config_over_env(self):
         config_json = {
             "nvidia_api_key": "from-config",

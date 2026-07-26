@@ -20,7 +20,7 @@ def recognize_audio(
         encoding=riva.client.AudioEncoding.LINEAR_PCM,
         sample_rate_hertz=sample_rate,
         audio_channel_count=1,
-        language_code=language,
+        language_code="multi" if language == "auto" else language,
         enable_automatic_punctuation=True,
         verbatim_transcripts=True,
         max_alternatives=1,

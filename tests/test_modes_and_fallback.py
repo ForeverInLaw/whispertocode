@@ -115,6 +115,8 @@ def _make_app() -> "ptt_whisper.HoldToTalkRiva":
     app._settings_request_event = threading.Event()
     app._settings_request_source = ""
     app._output_mode = ptt_whisper.OUTPUT_MODE_RAW
+    app._api_key = "test-key"
+    app._stt_backend = ptt_whisper.STT_BACKEND_LOCAL
     app._keyboard = mock.Mock()
     app._peak_level = 0.05
     app._min_level = 0.01
@@ -472,6 +474,9 @@ class ModesAndFallbackTests(unittest.TestCase):
                 "whispertocode.cli.resolve_settings",
                 return_value=types.SimpleNamespace(
                     nvidia_api_key="key",
+                    stt_backend="riva",
+                    local_model="base",
+                    local_model_dir="",
                     riva_server="grpc.nvcf.nvidia.com:443",
                     riva_function_id="b702f636-f60c-4a3d-a6f4-f3568c13bd7d",
                     nemotron_base_url="https://integrate.api.nvidia.com/v1",

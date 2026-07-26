@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Optional
 
-from .config_store import AppSettings
+from .config_store import AppSettings, normalize_stt_backend
+from .constants import LOCAL_MODEL_CHOICES, STT_BACKEND_LOCAL, STT_BACKEND_RIVA
 
 
 def run_onboarding(initial: AppSettings) -> Optional[AppSettings]:
@@ -111,6 +112,24 @@ class _OnboardingWizard:
                 border: 1px solid rgba(255, 255, 255, 0.4);
                 background: #1a1a1c;
             }
+            QComboBox {
+                background: #121214;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
+                color: rgba(255, 255, 255, 0.9);
+                padding: 10px 14px;
+                font-size: 14px;
+            }
+            QComboBox:focus {
+                border: 1px solid rgba(255, 255, 255, 0.4);
+                background: #1a1a1c;
+            }
+            QComboBox QAbstractItemView {
+                background: #18181a;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                color: rgba(255, 255, 255, 0.9);
+                selection-background-color: rgba(255, 255, 255, 0.2);
+            }
             QCheckBox {
                 spacing: 12px;
                 color: rgba(255, 255, 255, 0.9);
@@ -176,13 +195,15 @@ class _OnboardingWizard:
         qt_widgets = self._qt_widgets
 
         self._api_key_page = qt_widgets.QWizardPage()
-        self._api_key_page.setTitle("Step 1: API Key")
+        self._api_key_page.setTitle("Step 1: Backend + API Key")
         if self._existing_api_key:
             self._api_key_page.setSubTitle(
                 "Enter a new NVIDIA API key, or leave blank to keep the current one."
             )
         else:
-            self._api_key_page.setSubTitle("Enter your NVIDIA API key to continue.")
+            self._api_key_page.setSubTitle(
+                "Pick a speech backend. Cloud needs an NVIDIA API key; local runs offline."
+            )
         key_layout = qt_widgets.QVBoxLayout()
         key_layout.setContentsMargins(0, 8, 0, 0)
         key_layout.setSpacing(12)
@@ -194,11 +215,35 @@ class _OnboardingWizard:
         key_form = qt_widgets.QFormLayout()
         key_form.setContentsMargins(20, 18, 20, 20)
         key_form.setSpacing(10)
+        self._backend_combo = qt_widgets.QComboBox()
+        self._backend_combo.addItem("NVIDIA Riva (cloud)", STT_BACKEND_RIVA)
+        self._backend_combo.addItem("whisper.cpp (local)", STT_BACKEND_LOCAL)
+        initial_backend = normalize_stt_backend(self._initial.stt_backend)
+        self._backend_combo.setCurrentIndex(
+            1 if initial_backend == STT_BACKEND_LOCAL else 0
+        )
+        self._local_model_combo = qt_widgets.QComboBox()
+        self._local_model_combo.setEditable(True)
+        self._local_model_combo.addItems(list(LOCAL_MODEL_CHOICES))
+        self._local_model_combo.setCurrentText(self._initial.local_model)
+        self._local_model_dir_input = qt_widgets.QLineEdit(self._initial.local_model_dir)
+        self._local_model_dir_input.setPlaceholderText(
+            "Blank = default cache directory"
+        )
+        key_form.addRow("Speech backend", self._backend_combo)
+        key_form.addRow("Local model", self._local_model_combo)
+        key_form.addRow("Local model directory", self._local_model_dir_input)
         self._key_input = qt_widgets.QLineEdit()
         self._key_input.setEchoMode(qt_widgets.QLineEdit.PasswordEchoOnEdit)
         self._key_input.setPlaceholderText("nvapi-...")
         self._api_key_page.registerField("nvidia_api_key", self._key_input)
         key_form.addRow("NVIDIA_API_KEY", self._key_input)
+        local_key_hint = qt_widgets.QLabel(
+            "The key stays optional for local speech, but SMART rewrite still needs it."
+        )
+        local_key_hint.setObjectName("onboardingMeta")
+        local_key_hint.setWordWrap(True)
+        key_form.addRow("", local_key_hint)
         if self._existing_api_key:
             keep_hint = qt_widgets.QLabel("Current key is configured. Leave this blank to keep it.")
             keep_hint.setObjectName("onboardingMeta")
@@ -351,8 +396,13 @@ class _OnboardingWizard:
     def _mode_next_id(self) -> int:
         return 2 if self._customize_checkbox.isChecked() else 4
 
+    def _selected_backend(self) -> str:
+        return normalize_stt_backend(self._backend_combo.currentData())
+
     def _validate_api_key_page(self) -> bool:
         if self._key_input.text().strip() or self._existing_api_key:
+            return True
+        if self._selected_backend() == STT_BACKEND_LOCAL:
             return True
         self._show_invalid("NVIDIA_API_KEY cannot be empty.")
         return False
@@ -420,6 +470,9 @@ class _OnboardingWizard:
         self._review_label.setText(
             (
                 f"API key: {key_status}\n"
+                f"Speech backend: {settings.stt_backend}\n"
+                f"Local model: {settings.local_model}"
+                f"{' in ' + settings.local_model_dir if settings.local_model_dir else ''}\n"
                 f"Riva server: {settings.riva_server}\n"
                 f"Riva function ID: {settings.riva_function_id}\n"
                 f"Nemotron URL: {settings.nemotron_base_url}\n"
@@ -438,9 +491,18 @@ class _OnboardingWizard:
     def collect_settings(self) -> AppSettings:
         entered_key = self._key_input.text().strip()
         key = entered_key if entered_key else self._existing_api_key
+        backend = self._selected_backend()
+        local_model = self._local_model_combo.currentText().strip()
+        local_model_dir = self._local_model_dir_input.text().strip()
         customize = self._customize_checkbox.isChecked()
         if not customize:
-            return replace(self._initial, nvidia_api_key=key)
+            return replace(
+                self._initial,
+                nvidia_api_key=key,
+                stt_backend=backend,
+                local_model=local_model,
+                local_model_dir=local_model_dir,
+            )
 
         temperature = _parse_float(self._temperature_input.text())
         top_p = _parse_float(self._top_p_input.text())
@@ -450,6 +512,9 @@ class _OnboardingWizard:
 
         return AppSettings(
             nvidia_api_key=key,
+            stt_backend=backend,
+            local_model=local_model,
+            local_model_dir=local_model_dir,
             riva_server=self._riva_server_input.text().strip(),
             riva_function_id=self._riva_function_input.text().strip(),
             nemotron_base_url=self._nem_base_url_input.text().strip(),
