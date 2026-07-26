@@ -41,10 +41,16 @@ If `sounddevice` install fails on Linux, install PortAudio first (`portaudio19-d
 
 ## First-run setup
 
-On first launch, if a key is needed but not configured, the app opens a UI onboarding wizard:
-- Step 1: pick the speech backend, the local model, and enter `NVIDIA_API_KEY`
-- Step 2+: optionally customize Riva/Nemotron endpoints and model settings
-- Settings are saved to a JSON config file in OS app config directory.
+On first launch, if a key is needed but not configured, the app opens a setup wizard:
+- **Speech backend** — cloud or local, the local model, and the API key. Two pages by default:
+  this one and a review of what will be written.
+- **Customize endpoints and models** — optional, ticked from this page. Adds the Riva endpoint
+  page (cloud backend only) and the cleanup-model page.
+- Settings are saved to a JSON config file in the OS app config directory.
+
+The same dialog reopens from the tray as **Settings**. There it is titled Settings rather than
+Setup, and the customize box starts ticked whenever your stored config already differs from the
+defaults, so your own values are on the route instead of hidden behind it.
 
 Config file location:
 - Windows: `%APPDATA%\WhisperToCode\config.json`
@@ -52,6 +58,23 @@ Config file location:
 - Linux: `${XDG_CONFIG_HOME:-~/.config}/whispertocode/config.json`
 
 Environment variables are still supported as fallback/migration source, but `.env` next to binary is no longer required.
+
+One exception to that fallback: an API key removed through the wizard stays removed. An empty
+`nvidia_api_key` in `config.json` is treated as a deliberate choice and wins over `NVIDIA_API_KEY`
+in the environment or in a `.env`, which would otherwise put the deleted key straight back.
+
+## Tests
+
+```bash
+PYTHONPATH=. python tests/test_modes_and_fallback.py     # and the other test_*.py files
+```
+
+The wizard has a separate check, because it needs a real PySide6 QApplication that the rest of
+the suite stubs out:
+
+```bash
+PYTHONPATH=. QT_QPA_PLATFORM=offscreen python tests/wizard_offscreen_check.py < /dev/null
+```
 
 ## Run
 
