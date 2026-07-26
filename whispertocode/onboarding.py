@@ -21,6 +21,32 @@ _PAGE_RIVA = 1
 _PAGE_CLEANUP = 2
 _PAGE_REVIEW = 3
 
+# The same dialog answers two different questions. MODE_SETUP is first run:
+# nothing is stored yet, and walking the pages in order *is* the task.
+# MODE_SETTINGS is the tray menu reopening it to change one value, where the
+# subject is the configuration the user already has. The mode only changes how
+# the dialog presents itself; the pages, fields and routing are identical.
+MODE_SETUP = "setup"
+MODE_SETTINGS = "settings"
+
+# Exactly the fields the two optional pages edit — Riva endpoint and Cleanup
+# model. Everything on the first page (API key, backend, local model, model
+# folder) is deliberately absent: those are choices every user makes, so
+# counting them as "customisation" would tick the box for everybody and tell
+# the reader nothing.
+_ADVANCED_FIELDS = (
+    "riva_server",
+    "riva_function_id",
+    "nemotron_base_url",
+    "nemotron_model",
+    "nemotron_temperature",
+    "nemotron_top_p",
+    "nemotron_max_tokens",
+    "nemotron_reasoning_budget",
+    "nemotron_reasoning_print_limit",
+    "nemotron_enable_thinking",
+)
+
 # A stored key is shown as a fingerprint so the user can tell *which* key is
 # saved without the dialog ever rendering the secret. Four trailing characters
 # are enough to recognise a key you pasted yourself; keys too short for that to
@@ -35,7 +61,23 @@ def _key_fingerprint(key: str) -> str:
     return "•" * _KEY_FINGERPRINT_TAIL * 2
 
 
-def run_onboarding(initial: AppSettings) -> Optional[AppSettings]:
+def has_custom_advanced_settings(settings: AppSettings) -> bool:
+    """True when anything behind the Customize checkbox is not a default.
+
+    Deciding factor for whether that checkbox opens ticked: a value the user
+    set by hand is otherwise invisible until they remember to tick a box, which
+    is the wrong default for someone reopening this to edit that very value.
+    Answered from the config alone, not from the mode — the reason to show a
+    page is that it holds something, whichever door the dialog was opened from.
+    """
+    defaults = AppSettings()
+    return any(
+        getattr(settings, field) != getattr(defaults, field)
+        for field in _ADVANCED_FIELDS
+    )
+
+
+def run_onboarding(initial: AppSettings, mode: str = MODE_SETUP) -> Optional[AppSettings]:
     try:
         from PySide6 import QtCore, QtGui, QtWidgets
     except Exception as exc:
@@ -52,18 +94,24 @@ def run_onboarding(initial: AppSettings) -> Optional[AppSettings]:
         app.setQuitOnLastWindowClosed(False)
 
     try:
-        return run_onboarding_with_qt(QtCore, QtGui, QtWidgets, initial)
+        return run_onboarding_with_qt(QtCore, QtGui, QtWidgets, initial, mode)
     finally:
         if owns_app:
             app.quit()
 
 
-def run_onboarding_with_qt(qt_core, qt_gui, qt_widgets, initial: AppSettings) -> Optional[AppSettings]:
+def run_onboarding_with_qt(
+    qt_core,
+    qt_gui,
+    qt_widgets,
+    initial: AppSettings,
+    mode: str = MODE_SETUP,
+) -> Optional[AppSettings]:
     app = qt_widgets.QApplication.instance()
     if app is not None:
         # Keep overlay/runtime alive when settings wizard is closed.
         app.setQuitOnLastWindowClosed(False)
-    wizard = _OnboardingWizard(qt_core, qt_gui, qt_widgets, initial)
+    wizard = _OnboardingWizard(qt_core, qt_gui, qt_widgets, initial, mode)
     result = wizard.exec()
     if result != int(qt_widgets.QDialog.Accepted):
         return None
@@ -116,11 +164,21 @@ def _validating_page_class(qt_widgets):
 
 
 class _OnboardingWizard:
-    def __init__(self, qt_core, qt_gui, qt_widgets, initial: AppSettings) -> None:
+    def __init__(
+        self,
+        qt_core,
+        qt_gui,
+        qt_widgets,
+        initial: AppSettings,
+        mode: str = MODE_SETUP,
+    ) -> None:
         self._qt_core = qt_core
         self._qt_gui = qt_gui
         self._qt_widgets = qt_widgets
         self._initial = initial
+        # Anything unrecognised falls back to first run: a caller that typos the
+        # mode gets the safe framing rather than a half-switched dialog.
+        self._settings_mode = mode == MODE_SETTINGS
         self._existing_api_key = initial.nvidia_api_key.strip()
         # Armed by the Remove button, undone by the same button or by typing a
         # replacement. Nothing is written until Save, so this stays a staged
@@ -128,7 +186,9 @@ class _OnboardingWizard:
         self._key_removed = False
 
         wizard = qt_widgets.QWizard()
-        wizard.setWindowTitle("WhisperToCode Setup")
+        wizard.setWindowTitle(
+            "WhisperToCode Settings" if self._settings_mode else "WhisperToCode Setup"
+        )
         wizard.setOption(qt_widgets.QWizard.NoBackButtonOnStartPage, True)
         wizard.setOption(qt_widgets.QWizard.NoCancelButton, False)
         flags = (
@@ -472,7 +532,13 @@ class _OnboardingWizard:
         self._customize_checkbox = qt_widgets.QCheckBox(
             "Customize endpoints and models"
         )
-        self._customize_checkbox.setChecked(False)
+        # Ticked when the stored config already carries custom values, so a
+        # returning user's own endpoint or model is on the route instead of
+        # hidden behind a box they have to remember to tick. A default config
+        # has nothing to show, so it opens on the short route as before.
+        self._customize_checkbox.setChecked(
+            has_custom_advanced_settings(self._initial)
+        )
         customize_layout = qt_widgets.QVBoxLayout()
         customize_layout.setContentsMargins(20, 4, 20, 0)
         customize_layout.setSpacing(6)

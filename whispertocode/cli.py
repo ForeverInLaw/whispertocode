@@ -22,7 +22,7 @@ from .constants import (
     STT_BACKEND_LOCAL,
     STT_BACKEND_RIVA,
 )
-from .onboarding import run_onboarding
+from .onboarding import MODE_SETTINGS, MODE_SETUP, run_onboarding
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -96,7 +96,12 @@ def main() -> int:
 
         force_onboarding = bool(getattr(args, "onboarding", False))
         if force_onboarding or (needs_key and not resolved.nvidia_api_key):
-            onboarding_result = run_onboarding(resolved)
+            # An existing config file is what makes this not a first run, and it
+            # answers for both doors: --onboarding on a configured install is
+            # the CLI's Settings item, and a missing key beside a config that
+            # already exists is one value to fix, not an install to complete.
+            mode = MODE_SETTINGS if config_exists else MODE_SETUP
+            onboarding_result = run_onboarding(resolved, mode=mode)
             if onboarding_result is None:
                 print("Onboarding canceled.", file=sys.stderr)
                 return 1

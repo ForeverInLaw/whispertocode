@@ -1,6 +1,7 @@
 import importlib
 import types
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -71,11 +72,12 @@ class ConfigAndOnboardingFlowTests(unittest.TestCase):
             onboarding=False,
         )
         configured = config_store.AppSettings(nvidia_api_key="new-key")
+        resolved = config_store.AppSettings()
         app = mock.Mock()
         with (
             mock.patch("whispertocode.cli.parse_args", return_value=args),
             mock.patch("whispertocode.cli.get_config_path", return_value=types.SimpleNamespace(exists=lambda: False)),
-            mock.patch("whispertocode.cli.resolve_settings", return_value=config_store.AppSettings()),
+            mock.patch("whispertocode.cli.resolve_settings", return_value=resolved),
             mock.patch("whispertocode.cli.load_config_json", return_value={}),
             mock.patch("whispertocode.cli.load_env_fallback", return_value={}),
             mock.patch("whispertocode.cli.run_onboarding", return_value=configured) as onboarding_mock,
@@ -86,7 +88,12 @@ class ConfigAndOnboardingFlowTests(unittest.TestCase):
             code = cli_module.main()
 
         self.assertEqual(code, 0)
-        onboarding_mock.assert_called_once()
+        # No config file yet: this really is a first run, so the dialog opens as
+        # the setup wizard rather than as the Settings dialog.
+        onboarding_mock.assert_called_once_with(
+            resolved,
+            mode=onboarding_module.MODE_SETUP,
+        )
         save_mock.assert_called_once_with(configured)
         app.run.assert_called_once()
 
@@ -183,10 +190,11 @@ class ConfigAndOnboardingFlowTests(unittest.TestCase):
             debug_console=False,
             onboarding=False,
         )
+        resolved = config_store.AppSettings()
         with (
             mock.patch("whispertocode.cli.parse_args", return_value=args),
             mock.patch("whispertocode.cli.get_config_path", return_value=types.SimpleNamespace(exists=lambda: True)),
-            mock.patch("whispertocode.cli.resolve_settings", return_value=config_store.AppSettings()),
+            mock.patch("whispertocode.cli.resolve_settings", return_value=resolved),
             mock.patch("whispertocode.cli.load_config_json", return_value={}),
             mock.patch("whispertocode.cli.load_env_fallback", return_value={}),
             mock.patch("whispertocode.cli.run_onboarding", return_value=None) as onboarding_mock,
@@ -196,7 +204,110 @@ class ConfigAndOnboardingFlowTests(unittest.TestCase):
             code = cli_module.main()
 
         self.assertEqual(code, 1)
-        onboarding_mock.assert_called_once()
+        # A config already exists, so the missing key is one value to fix on an
+        # installed app, not a fresh install to walk through.
+        onboarding_mock.assert_called_once_with(
+            resolved,
+            mode=onboarding_module.MODE_SETTINGS,
+        )
+
+    def test_onboarding_flag_on_existing_config_opens_as_settings(self):
+        args = types.SimpleNamespace(
+            sample_rate=16000,
+            language="auto",
+            hold_delay=0.5,
+            mode="raw",
+            no_tray=False,
+            debug_console=False,
+            onboarding=True,
+        )
+        resolved = config_store.AppSettings(nvidia_api_key="already-set")
+        app = mock.Mock()
+        with (
+            mock.patch("whispertocode.cli.parse_args", return_value=args),
+            mock.patch("whispertocode.cli.get_config_path", return_value=types.SimpleNamespace(exists=lambda: True)),
+            mock.patch("whispertocode.cli.resolve_settings", return_value=resolved),
+            mock.patch("whispertocode.cli.load_config_json", return_value={}),
+            mock.patch("whispertocode.cli.load_env_fallback", return_value={}),
+            mock.patch("whispertocode.cli.run_onboarding", return_value=resolved) as onboarding_mock,
+            mock.patch("whispertocode.cli.save_config_json"),
+            mock.patch("whispertocode.cli.HoldToTalkRiva", return_value=app),
+            mock.patch("whispertocode.cli.signal.signal"),
+        ):
+            code = cli_module.main()
+
+        self.assertEqual(code, 0)
+        onboarding_mock.assert_called_once_with(
+            resolved,
+            mode=onboarding_module.MODE_SETTINGS,
+        )
+
+    def test_onboarding_flag_without_config_still_opens_as_setup(self):
+        args = types.SimpleNamespace(
+            sample_rate=16000,
+            language="auto",
+            hold_delay=0.5,
+            mode="raw",
+            no_tray=False,
+            debug_console=False,
+            onboarding=True,
+        )
+        resolved = config_store.AppSettings()
+        app = mock.Mock()
+        with (
+            mock.patch("whispertocode.cli.parse_args", return_value=args),
+            mock.patch("whispertocode.cli.get_config_path", return_value=types.SimpleNamespace(exists=lambda: False)),
+            mock.patch("whispertocode.cli.resolve_settings", return_value=resolved),
+            mock.patch("whispertocode.cli.load_config_json", return_value={}),
+            mock.patch("whispertocode.cli.load_env_fallback", return_value={}),
+            mock.patch("whispertocode.cli.run_onboarding", return_value=resolved) as onboarding_mock,
+            mock.patch("whispertocode.cli.save_config_json"),
+            mock.patch("whispertocode.cli.HoldToTalkRiva", return_value=app),
+            mock.patch("whispertocode.cli.signal.signal"),
+        ):
+            code = cli_module.main()
+
+        self.assertEqual(code, 0)
+        onboarding_mock.assert_called_once_with(
+            resolved,
+            mode=onboarding_module.MODE_SETUP,
+        )
+
+    def test_has_custom_advanced_settings_ignores_first_page_fields(self):
+        defaults = config_store.AppSettings()
+        self.assertFalse(onboarding_module.has_custom_advanced_settings(defaults))
+        # The API key, the backend and the local-model fields all live on the
+        # first page, so none of them counts as a customisation to reveal.
+        for field, value in (
+            ("nvidia_api_key", "nvapi-xyz"),
+            ("stt_backend", "local"),
+            ("local_model", "small-q5_1"),
+            ("local_model_dir", "D:/models"),
+        ):
+            with self.subTest(field=field):
+                self.assertFalse(
+                    onboarding_module.has_custom_advanced_settings(
+                        replace(defaults, **{field: value})
+                    )
+                )
+        for field, value in (
+            ("riva_server", "grpc.example.com:443"),
+            ("riva_function_id", "fn-custom"),
+            ("nemotron_base_url", "https://example.invalid/v1"),
+            ("nemotron_model", "vendor/other"),
+            ("nemotron_temperature", 0.4),
+            ("nemotron_top_p", 0.8),
+            ("nemotron_max_tokens", 999),
+            ("nemotron_reasoning_budget", 7),
+            ("nemotron_reasoning_print_limit", 11),
+            ("nemotron_enable_thinking", False),
+        ):
+            with self.subTest(field=field):
+                self.assertTrue(
+                    onboarding_module.has_custom_advanced_settings(
+                        replace(defaults, **{field: value})
+                    )
+                )
 
     def test_requires_nvidia_key_matrix(self):
         self.assertTrue(config_store.requires_nvidia_key("riva", "raw"))

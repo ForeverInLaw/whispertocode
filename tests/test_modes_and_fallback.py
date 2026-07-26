@@ -106,6 +106,7 @@ _install_dependency_stubs()
 ptt_whisper = importlib.import_module("whispertocode.app")
 cli_module = importlib.import_module("whispertocode.cli")
 overlay_module = importlib.import_module("whispertocode.overlay")
+onboarding_module = importlib.import_module("whispertocode.onboarding")
 
 
 def _make_app() -> "ptt_whisper.HoldToTalkRiva":
@@ -319,12 +320,13 @@ class ModesAndFallbackTests(unittest.TestCase):
         app._overlay_controller = mock.Mock()
         app._notify_tray_unavailable = mock.Mock()
 
+        current_settings = types.SimpleNamespace()
         updated_settings = types.SimpleNamespace()
         app._overlay_controller.run_onboarding_dialog.return_value = updated_settings
         with (
             mock.patch("whispertocode.app.load_config_json", return_value={}),
             mock.patch("whispertocode.app.load_env_fallback", return_value={}),
-            mock.patch("whispertocode.app.resolve_settings", return_value=types.SimpleNamespace()),
+            mock.patch("whispertocode.app.resolve_settings", return_value=current_settings),
             mock.patch("whispertocode.app.run_onboarding") as run_onboarding_mock,
             mock.patch("whispertocode.app.save_config_json") as save_mock,
             mock.patch("builtins.print"),
@@ -332,9 +334,41 @@ class ModesAndFallbackTests(unittest.TestCase):
             app._process_pending_settings_request()
 
         run_onboarding_mock.assert_not_called()
-        app._overlay_controller.run_onboarding_dialog.assert_called_once()
+        # Reopened from the tray, so the dialog is the Settings dialog: it must
+        # never present itself as first-run setup here.
+        app._overlay_controller.run_onboarding_dialog.assert_called_once_with(
+            current_settings,
+            mode=onboarding_module.MODE_SETTINGS,
+        )
         save_mock.assert_called_once_with(updated_settings)
         app._notify_tray_unavailable.assert_called_once()
+
+    def test_process_pending_settings_request_without_overlay_still_settings_mode(self):
+        app = _make_app()
+        app._settings_request_event.set()
+        app._settings_request_source = "tray"
+        app._notify_tray_unavailable = mock.Mock()
+
+        current_settings = types.SimpleNamespace()
+        updated_settings = types.SimpleNamespace()
+        with (
+            mock.patch("whispertocode.app.load_config_json", return_value={}),
+            mock.patch("whispertocode.app.load_env_fallback", return_value={}),
+            mock.patch("whispertocode.app.resolve_settings", return_value=current_settings),
+            mock.patch(
+                "whispertocode.app.run_onboarding",
+                return_value=updated_settings,
+            ) as run_onboarding_mock,
+            mock.patch("whispertocode.app.save_config_json") as save_mock,
+            mock.patch("builtins.print"),
+        ):
+            app._process_pending_settings_request()
+
+        run_onboarding_mock.assert_called_once_with(
+            current_settings,
+            mode=onboarding_module.MODE_SETTINGS,
+        )
+        save_mock.assert_called_once_with(updated_settings)
 
     def test_set_output_mode_updates_overlay_mode(self):
         app = _make_app()

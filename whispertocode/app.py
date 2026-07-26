@@ -42,7 +42,7 @@ from .overlay import QtCapsuleOverlayController
 from .riva_asr import recognize_audio
 from .runtime_support import run_app, startup_banner_lines
 from .smart import build_smart_messages, ensure_nemotron_client, rewrite_text_streaming
-from .onboarding import run_onboarding
+from .onboarding import MODE_SETTINGS, run_onboarding
 from .tray_support import (
     build_tray_icon_image,
     build_tray_menu,
@@ -333,11 +333,15 @@ class HoldToTalkRiva:
 
         current = resolve_settings(load_config_json(), load_env_fallback())
         try:
+            # Reopened from the tray on a configured install: this is editing
+            # what already exists, never a first run, whichever path opens it.
             overlay_controller = getattr(self, "_overlay_controller", None)
             if overlay_controller is not None:
-                updated = overlay_controller.run_onboarding_dialog(current)
+                updated = overlay_controller.run_onboarding_dialog(
+                    current, mode=MODE_SETTINGS
+                )
             else:
-                updated = run_onboarding(current)
+                updated = run_onboarding(current, mode=MODE_SETTINGS)
             if updated is None:
                 return
             save_config_json(updated)

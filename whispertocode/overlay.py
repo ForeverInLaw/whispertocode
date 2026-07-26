@@ -5,6 +5,7 @@ import time
 from typing import Any, Optional, Tuple
 
 from .constants import OVERLAY_FPS, OVERLAY_HEIGHT, OVERLAY_WIDTH, OUTPUT_MODE_RAW, OUTPUT_MODE_SMART
+from .onboarding import MODE_SETUP
 
 class _CapsuleOverlayWidget:
     def __init__(self, qt_core, qt_gui, qt_widgets, width: int, height: int) -> None:
@@ -217,10 +218,12 @@ class QtCapsuleOverlayController:
     def update_level(self, level: float) -> None:
         self._queue.put(("level", level))
 
-    def run_onboarding_dialog(self, initial_settings):
+    def run_onboarding_dialog(self, initial_settings, mode: str = MODE_SETUP):
         response_queue: "queue.Queue[Any]" = queue.Queue(maxsize=1)
         done_event = threading.Event()
-        self._queue.put(("onboarding", (initial_settings, response_queue, done_event)))
+        self._queue.put(
+            ("onboarding", (initial_settings, mode, response_queue, done_event))
+        )
         done_event.wait()
         result = response_queue.get()
         if isinstance(result, Exception):
@@ -275,7 +278,7 @@ class QtCapsuleOverlayController:
                     elif cmd == "hide":
                         overlay.hide()
                     elif cmd == "onboarding":
-                        initial_settings, response_queue, done_event = value
+                        initial_settings, mode, response_queue, done_event = value
                         try:
                             from .onboarding import run_onboarding_with_qt
 
@@ -284,6 +287,7 @@ class QtCapsuleOverlayController:
                                 QtGui,
                                 QtWidgets,
                                 initial_settings,
+                                mode,
                             )
                             response_queue.put(result)
                         except Exception as exc:
