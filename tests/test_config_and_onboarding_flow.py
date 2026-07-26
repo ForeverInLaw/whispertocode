@@ -296,9 +296,6 @@ class ConfigAndOnboardingFlowTests(unittest.TestCase):
             ("nemotron_base_url", "https://example.invalid/v1"),
             ("nemotron_model", "vendor/other"),
             ("nemotron_temperature", 0.4),
-            ("nemotron_top_p", 0.8),
-            ("nemotron_max_tokens", 999),
-            ("nemotron_reasoning_budget", 7),
             ("nemotron_enable_thinking", False),
         ):
             with self.subTest(field=field):

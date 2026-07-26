@@ -6,7 +6,6 @@ from typing import Optional
 from .config_store import AppSettings, get_config_path, normalize_stt_backend
 from .constants import (
     LOCAL_MODELS,
-    NEMOTRON_REASONING_BUDGET_MAX,
     STT_BACKEND_LOCAL,
     STT_BACKEND_RIVA,
 )
@@ -39,9 +38,6 @@ _ADVANCED_FIELDS = (
     "nemotron_base_url",
     "nemotron_model",
     "nemotron_temperature",
-    "nemotron_top_p",
-    "nemotron_max_tokens",
-    "nemotron_reasoning_budget",
     "nemotron_enable_thinking",
 )
 
@@ -272,6 +268,7 @@ class _OnboardingWizard:
                 color: rgba(255, 255, 255, 0.9);
                 placeholder-text-color: #7a7a82;
                 padding: 10px 14px;
+                min-height: 18px;
                 font-size: 14px;
                 selection-background-color: rgba(255, 255, 255, 0.2);
             }
@@ -285,6 +282,7 @@ class _OnboardingWizard:
                 border-radius: 8px;
                 color: rgba(255, 255, 255, 0.9);
                 padding: 10px 14px;
+                min-height: 18px;
                 font-size: 14px;
                 selection-background-color: rgba(255, 255, 255, 0.2);
             }
@@ -348,6 +346,7 @@ class _OnboardingWizard:
                 border-radius: 8px;
                 color: rgba(255, 255, 255, 0.9);
                 padding: 10px 14px;
+                min-height: 18px;
                 font-size: 14px;
             }
             QComboBox:focus {
@@ -613,22 +612,9 @@ class _OnboardingWizard:
         nem_form.setSpacing(10)
         self._nem_base_url_input = qt_widgets.QLineEdit(self._initial.nemotron_base_url)
         self._nem_model_input = qt_widgets.QLineEdit(self._initial.nemotron_model)
-        # Bounded so the wizard cannot offer a value the app would refuse or
-        # silently clamp; the two reasoning fields reuse the app's own maxima.
+        # Bounded so the wizard cannot offer a value the app would refuse.
         self._temperature_spin = self._build_decimal_field(
             self._initial.nemotron_temperature, 0.0, 2.0, 0.05
-        )
-        self._top_p_spin = self._build_decimal_field(
-            self._initial.nemotron_top_p, 0.0, 1.0, 0.05
-        )
-        self._max_tokens_spin = self._build_whole_field(
-            self._initial.nemotron_max_tokens, 1, 131072, 256
-        )
-        self._reasoning_budget_spin = self._build_whole_field(
-            self._initial.nemotron_reasoning_budget,
-            0,
-            NEMOTRON_REASONING_BUDGET_MAX,
-            128,
         )
         self._enable_thinking_checkbox = qt_widgets.QCheckBox(
             "Let the model think before it rewrites"
@@ -639,21 +625,6 @@ class _OnboardingWizard:
         nem_form.addRow("Model", self._nem_model_input)
         nem_form.addRow("", self._build_caption("NEMOTRON_MODEL"))
         nem_form.addRow("Temperature", self._temperature_spin)
-        nem_form.addRow("Top-p", self._top_p_spin)
-        nem_form.addRow(
-            "",
-            self._build_caption(
-                "Narrows word choice to the most likely options. 1.0 leaves it wide open."
-            ),
-        )
-        nem_form.addRow("Response token limit", self._max_tokens_spin)
-        nem_form.addRow("Thinking budget", self._reasoning_budget_spin)
-        nem_form.addRow(
-            "",
-            self._build_caption(
-                "Tokens the model may spend thinking before it answers."
-            ),
-        )
         nem_form.addRow(self._enable_thinking_checkbox)
         self._nem_error = self._build_error()
         nem_form.addRow("", self._nem_error)
@@ -721,14 +692,6 @@ class _OnboardingWizard:
         label.setWordWrap(True)
         label.setVisible(False)
         return label
-
-    def _build_whole_field(self, value: int, low: int, high: int, step: int):
-        """Whole-number field whose range makes the invalid states untypable."""
-        box = self._qt_widgets.QSpinBox()
-        box.setRange(low, high)
-        box.setSingleStep(step)
-        box.setValue(int(value))
-        return box
 
     def _build_decimal_field(self, value: float, low: float, high: float, step: float):
         """Same, for the sampling knobs that are fractions."""
@@ -895,8 +858,5 @@ class _OnboardingWizard:
             nemotron_base_url=self._nem_base_url_input.text().strip(),
             nemotron_model=self._nem_model_input.text().strip(),
             nemotron_temperature=self._temperature_spin.value(),
-            nemotron_top_p=self._top_p_spin.value(),
-            nemotron_max_tokens=self._max_tokens_spin.value(),
-            nemotron_reasoning_budget=self._reasoning_budget_spin.value(),
             nemotron_enable_thinking=self._enable_thinking_checkbox.isChecked(),
         )
