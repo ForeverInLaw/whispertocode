@@ -47,9 +47,17 @@ def is_shift_key(key, keyboard_module) -> bool:
     return getattr(key, "vk", None) in SHIFT_VK_CODES
 
 
+def _is_suspended(app) -> bool:
+    settings_open = getattr(app, "_settings_open", None)
+    return settings_open is not None and settings_open.is_set()
+
+
 def on_press(app, key, keyboard_module, threading_module) -> Optional[bool]:
     shift_pressed = is_shift_key(key, keyboard_module)
     _log_key_event(app, "press", key, shift_pressed, "received")
+    if _is_suspended(app):
+        _log_key_event(app, "press", key, shift_pressed, "ignored: settings open")
+        return None
     if shift_pressed:
         timer_to_start = None
         repeated_press = False

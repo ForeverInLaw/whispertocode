@@ -36,6 +36,8 @@ def load_model(model: str, model_dir: str = ""):
     return Model(
         model or "tiny",
         models_dir=str(target_dir),
+        # Off: this is per-transcription progress spam, not the model download.
+        # The download has its own tqdm bar inside pywhispercpp.
         print_progress=False,
         print_realtime=False,
         redirect_whispercpp_logs_to=None,

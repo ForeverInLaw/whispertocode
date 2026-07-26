@@ -63,10 +63,11 @@ def start_recording(app, sd_module) -> None:
         print(f"Failed to start recording: {exc}", file=sys.stderr)
 
 
-def stop_recording(app) -> None:
+def _teardown_stream(app) -> Optional[list]:
+    """Close the input stream and hand back the captured chunks, if any."""
     with app._lock:
         if not app._recording:
-            return
+            return None
         app._recording = False
         chunks = app._chunks
         app._chunks = []
@@ -79,6 +80,18 @@ def stop_recording(app) -> None:
         except Exception:
             pass
         app._stream = None
+    return chunks
+
+
+def discard_recording(app) -> None:
+    """Stop capturing and throw the audio away without transcribing it."""
+    _teardown_stream(app)
+
+
+def stop_recording(app) -> None:
+    chunks = _teardown_stream(app)
+    if chunks is None:
+        return
 
     if not chunks:
         print("No audio captured.")

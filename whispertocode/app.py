@@ -30,7 +30,7 @@ from .constants import (
     WINDOWS_SW_HIDE,
     WINDOWS_SW_SHOW,
 )
-from .audio_support import audio_callback, start_recording, stop_recording
+from .audio_support import audio_callback, discard_recording, start_recording, stop_recording
 from .hotkeys_support import (
     is_shift_key,
     on_press,
@@ -140,6 +140,7 @@ class HoldToTalkRiva:
         self._nemotron_client = None
         self._settings_request_event = threading.Event()
         self._settings_request_source = ""
+        self._settings_open = threading.Event()
         self._nemotron_base_url = settings.nemotron_base_url.strip()
         self._nemotron_model = settings.nemotron_model.strip()
         self._nemotron_temperature = float(settings.nemotron_temperature)
@@ -303,9 +304,24 @@ class HoldToTalkRiva:
         handle_tray_open_settings(self, icon, item)
 
     def _request_open_settings(self, source: str = "") -> None:
+        # Suspend push-to-talk first. The settings window is an ordinary focused
+        # window to the OS-level keyboard hook, so a Shift hold inside it would
+        # otherwise type a transcript straight into the API key field.
+        self._settings_open.set()
+        self._suspend_push_to_talk()
         with self._lock:
             self._settings_request_source = source or ""
         self._settings_request_event.set()
+
+    def _suspend_push_to_talk(self) -> None:
+        with self._lock:
+            self._ctrl_count = 0
+            self._press_token += 1
+            hold_timer = self._hold_timer
+            self._hold_timer = None
+        if hold_timer is not None:
+            hold_timer.cancel()
+        discard_recording(self)
 
     def _process_pending_settings_request(self) -> None:
         if not self._settings_request_event.is_set():
@@ -334,6 +350,8 @@ class HoldToTalkRiva:
             self._notify_tray_unavailable(message)
         except Exception as exc:
             print(f"Failed to open settings: {exc}", file=sys.stderr)
+        finally:
+            self._settings_open.clear()
 
     def _handle_tray_exit(self, icon, item) -> None:
         handle_tray_exit(self, icon, item)

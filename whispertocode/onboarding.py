@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Optional
 
-from .config_store import AppSettings, normalize_stt_backend
-from .constants import LOCAL_MODEL_CHOICES, STT_BACKEND_LOCAL, STT_BACKEND_RIVA
+from .config_store import AppSettings, get_config_path, normalize_stt_backend
+from .constants import LOCAL_MODELS, STT_BACKEND_LOCAL, STT_BACKEND_RIVA
+from .local_asr import default_model_dir
 
 
 def run_onboarding(initial: AppSettings) -> Optional[AppSettings]:
@@ -195,7 +196,7 @@ class _OnboardingWizard:
         qt_widgets = self._qt_widgets
 
         self._api_key_page = qt_widgets.QWizardPage()
-        self._api_key_page.setTitle("Step 1: Backend + API Key")
+        self._api_key_page.setTitle("Speech backend")
         if self._existing_api_key:
             self._api_key_page.setSubTitle(
                 "Enter a new NVIDIA API key, or leave blank to keep the current one."
@@ -222,16 +223,25 @@ class _OnboardingWizard:
         self._backend_combo.setCurrentIndex(
             1 if initial_backend == STT_BACKEND_LOCAL else 0
         )
+        # Not editable: a typo here would only surface as an upstream download
+        # error minutes later, on the first dictation. config.json is the
+        # escape hatch for models not listed.
         self._local_model_combo = qt_widgets.QComboBox()
-        self._local_model_combo.setEditable(True)
-        self._local_model_combo.addItems(list(LOCAL_MODEL_CHOICES))
-        self._local_model_combo.setCurrentText(self._initial.local_model)
+        for name, size in LOCAL_MODELS:
+            self._local_model_combo.addItem(f"{name} — {size}", name)
+        initial_model_index = self._local_model_combo.findData(self._initial.local_model)
+        if initial_model_index >= 0:
+            self._local_model_combo.setCurrentIndex(initial_model_index)
         self._local_model_dir_input = qt_widgets.QLineEdit(self._initial.local_model_dir)
-        self._local_model_dir_input.setPlaceholderText(
-            "Blank = default cache directory"
-        )
+        self._local_model_dir_input.setPlaceholderText(str(default_model_dir()))
         key_form.addRow("Speech backend", self._backend_combo)
         key_form.addRow("Local model", self._local_model_combo)
+        download_hint = qt_widgets.QLabel(
+            "Downloaded on your first dictation, not now. Cached after that."
+        )
+        download_hint.setObjectName("onboardingMeta")
+        download_hint.setWordWrap(True)
+        key_form.addRow("", download_hint)
         key_form.addRow("Local model directory", self._local_model_dir_input)
         self._key_input = qt_widgets.QLineEdit()
         self._key_input.setEchoMode(qt_widgets.QLineEdit.PasswordEchoOnEdit)
@@ -255,7 +265,7 @@ class _OnboardingWizard:
         self._api_key_page.setLayout(key_layout)
 
         self._mode_page = qt_widgets.QWizardPage()
-        self._mode_page.setTitle("Step 2: Endpoint/Model Setup")
+        self._mode_page.setTitle("Advanced setup")
         self._mode_page.setSubTitle(
             "You can keep defaults or configure custom endpoints and models."
         )
@@ -285,7 +295,7 @@ class _OnboardingWizard:
         self._mode_page.setLayout(mode_layout)
 
         self._riva_page = qt_widgets.QWizardPage()
-        self._riva_page.setTitle("Step 3: Riva Endpoint")
+        self._riva_page.setTitle("Riva endpoint")
         riva_layout = qt_widgets.QVBoxLayout()
         riva_layout.setContentsMargins(0, 8, 0, 0)
         riva_layout.setSpacing(12)
@@ -306,7 +316,7 @@ class _OnboardingWizard:
         self._riva_page.setLayout(riva_layout)
 
         self._nemotron_page = qt_widgets.QWizardPage()
-        self._nemotron_page.setTitle("Step 4: Nemotron Endpoint + Model")
+        self._nemotron_page.setTitle("Rewrite model")
         nem_layout = qt_widgets.QVBoxLayout()
         nem_layout.setContentsMargins(0, 8, 0, 0)
         nem_layout.setSpacing(12)
@@ -351,8 +361,8 @@ class _OnboardingWizard:
         self._nemotron_page.setLayout(nem_layout)
 
         self._review_page = qt_widgets.QWizardPage()
-        self._review_page.setTitle("Step 5: Review")
-        self._review_page.setSubTitle("Confirm settings and click Finish to save.")
+        self._review_page.setTitle("Review")
+        self._review_page.setSubTitle("Confirm your settings, then click Save.")
         review_layout = qt_widgets.QVBoxLayout()
         review_layout.setContentsMargins(0, 8, 0, 0)
         review_layout.setSpacing(12)
@@ -394,7 +404,14 @@ class _OnboardingWizard:
         return card
 
     def _mode_next_id(self) -> int:
-        return 2 if self._customize_checkbox.isChecked() else 4
+        if not self._customize_checkbox.isChecked():
+            return 4
+        # Skip the Riva page for local speech: it validates a cloud server and
+        # function ID that a local-only setup will never contact, and blocks
+        # Next when they are blank.
+        if self._selected_backend() == STT_BACKEND_LOCAL:
+            return 3
+        return 2
 
     def _selected_backend(self) -> str:
         return normalize_stt_backend(self._backend_combo.currentData())
@@ -465,25 +482,25 @@ class _OnboardingWizard:
         self._qt_widgets.QMessageBox.warning(self._wizard, "Validation", message)
 
     def _init_review_page(self) -> None:
+        # Only what this configuration will actually use: a local-only setup has
+        # no reason to read back a Riva endpoint or Nemotron sampling params.
         settings = self.collect_settings()
-        key_status = "configured" if settings.nvidia_api_key else "missing"
-        self._review_label.setText(
-            (
-                f"API key: {key_status}\n"
-                f"Speech backend: {settings.stt_backend}\n"
-                f"Local model: {settings.local_model}"
-                f"{' in ' + settings.local_model_dir if settings.local_model_dir else ''}\n"
-                f"Riva server: {settings.riva_server}\n"
-                f"Riva function ID: {settings.riva_function_id}\n"
-                f"Nemotron URL: {settings.nemotron_base_url}\n"
-                f"Nemotron model: {settings.nemotron_model}\n"
-                f"Temperature / top_p: {settings.nemotron_temperature} / {settings.nemotron_top_p}\n"
-                f"Max tokens: {settings.nemotron_max_tokens}\n"
-                f"Reasoning budget: {settings.nemotron_reasoning_budget}\n"
-                f"Reasoning print limit: {settings.nemotron_reasoning_print_limit}\n"
-                f"Enable thinking: {settings.nemotron_enable_thinking}"
-            )
-        )
+        lines = []
+        if normalize_stt_backend(settings.stt_backend) == STT_BACKEND_LOCAL:
+            size = dict(LOCAL_MODELS).get(settings.local_model)
+            size_note = f" — {size}, downloads on your first dictation" if size else ""
+            lines.append(f"Speech: whisper.cpp on this machine, {settings.local_model}{size_note}")
+            lines.append(f"Models stored in {settings.local_model_dir or default_model_dir()}")
+        else:
+            lines.append(f"Speech: NVIDIA Riva cloud, {settings.riva_server}")
+
+        if settings.nvidia_api_key:
+            lines.append(f"SMART rewrite: available, {settings.nemotron_model}")
+        else:
+            lines.append("SMART rewrite: unavailable until you add an NVIDIA API key")
+
+        lines.append(f"Saved to {get_config_path()}")
+        self._review_label.setText("\n".join(lines))
 
     def exec(self) -> int:
         return int(self._wizard.exec())
@@ -492,7 +509,7 @@ class _OnboardingWizard:
         entered_key = self._key_input.text().strip()
         key = entered_key if entered_key else self._existing_api_key
         backend = self._selected_backend()
-        local_model = self._local_model_combo.currentText().strip()
+        local_model = self._local_model_combo.currentData()
         local_model_dir = self._local_model_dir_input.text().strip()
         customize = self._customize_checkbox.isChecked()
         if not customize:
@@ -510,7 +527,10 @@ class _OnboardingWizard:
         reasoning_budget = _parse_int(self._reasoning_budget_input.text())
         reasoning_print_limit = _parse_int(self._reasoning_print_limit_input.text())
 
-        return AppSettings(
+        # replace(), not AppSettings(), so a field added later is carried over
+        # instead of being silently reset for everyone who ticks Customize.
+        return replace(
+            self._initial,
             nvidia_api_key=key,
             stt_backend=backend,
             local_model=local_model,

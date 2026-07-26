@@ -114,6 +114,7 @@ def _make_app() -> "ptt_whisper.HoldToTalkRiva":
     app._stop_event = threading.Event()
     app._settings_request_event = threading.Event()
     app._settings_request_source = ""
+    app._settings_open = threading.Event()
     app._output_mode = ptt_whisper.OUTPUT_MODE_RAW
     app._api_key = "test-key"
     app._stt_backend = ptt_whisper.STT_BACKEND_LOCAL
@@ -218,6 +219,38 @@ class ModesAndFallbackTests(unittest.TestCase):
         self.assertEqual(app._press_token, 1)
         self.assertIs(app._hold_timer, timer)
         timer.start.assert_called_once()
+
+    def test_shift_press_ignored_while_settings_dialog_is_open(self):
+        # Otherwise a Shift hold inside the wizard types a transcript into
+        # whatever field has focus, most likely the API key input.
+        app = _make_app()
+        app.hold_delay_sec = 0.5
+        app._ctrl_count = 0
+        app._press_token = 0
+        app._hold_timer = None
+        app._settings_open.set()
+        timer = mock.Mock()
+        with mock.patch("whispertocode.app.threading.Timer", return_value=timer):
+            app._on_press(types.SimpleNamespace(vk=160))
+        self.assertEqual(app._ctrl_count, 0)
+        self.assertIsNone(app._hold_timer)
+        timer.start.assert_not_called()
+
+    def test_request_open_settings_cancels_pending_hold(self):
+        app = _make_app()
+        app._ctrl_count = 1
+        app._press_token = 3
+        app._recording = False
+        timer = mock.Mock()
+        app._hold_timer = timer
+
+        app._request_open_settings("tray")
+
+        self.assertTrue(app._settings_open.is_set())
+        self.assertTrue(app._settings_request_event.is_set())
+        self.assertEqual(app._ctrl_count, 0)
+        self.assertIsNone(app._hold_timer)
+        timer.cancel.assert_called_once()
 
     def test_shift_press_repeat_does_not_increment_counter(self):
         app = _make_app()
