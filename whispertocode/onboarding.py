@@ -13,6 +13,14 @@ from .constants import (
 )
 from .local_asr import default_model_dir
 
+# Wizard page ids. Qt routes to the next larger id by default and starts on the
+# smallest one, so this order *is* the default path: only the backend page,
+# which branches, overrides nextId.
+_PAGE_BACKEND = 0
+_PAGE_RIVA = 1
+_PAGE_CLEANUP = 2
+_PAGE_REVIEW = 3
+
 
 def run_onboarding(initial: AppSettings) -> Optional[AppSettings]:
     try:
@@ -423,6 +431,25 @@ class _OnboardingWizard:
         key_form.addRow("", self._key_error)
         key_card.setLayout(key_form)
         key_layout.addWidget(key_card)
+        # Outside the card on purpose: this is an escape hatch to further pages,
+        # not another setting on this form. It is deliberately not a registered
+        # field and takes no part in this page's completeness.
+        self._customize_checkbox = qt_widgets.QCheckBox(
+            "Customize endpoints and models"
+        )
+        self._customize_checkbox.setChecked(False)
+        customize_layout = qt_widgets.QVBoxLayout()
+        customize_layout.setContentsMargins(20, 4, 20, 0)
+        customize_layout.setSpacing(6)
+        customize_layout.addWidget(self._customize_checkbox)
+        customize_hint = self._build_caption(
+            "Turn this on only if you need to send speech somewhere else, use a different "
+            "cleanup model, or change how that model writes."
+        )
+        # Indented to the checkbox's own label, past indicator plus spacing.
+        customize_hint.setContentsMargins(32, 0, 0, 0)
+        customize_layout.addWidget(customize_hint)
+        key_layout.addLayout(customize_layout)
         key_layout.addStretch(1)
         self._api_key_page.setLayout(key_layout)
         self._api_key_page.bind(
@@ -430,35 +457,6 @@ class _OnboardingWizard:
             self._key_error,
             (self._key_input.textChanged, self._backend_combo.currentIndexChanged),
         )
-
-        self._mode_page = qt_widgets.QWizardPage()
-        self._mode_page.setTitle("Advanced setup")
-        self._mode_page.setSubTitle(
-            "Optional. The defaults already point at NVIDIA's hosted services."
-        )
-        mode_layout = qt_widgets.QVBoxLayout()
-        mode_layout.setContentsMargins(0, 8, 0, 0)
-        mode_layout.setSpacing(12)
-        mode_label = self._build_caption(
-            "Turn this on only if you need to send speech somewhere else, use a different "
-            "cleanup model, or change how that model writes."
-        )
-        self._customize_checkbox = qt_widgets.QCheckBox(
-            "Customize endpoints and models"
-        )
-        self._customize_checkbox.setChecked(False)
-        self._mode_page.registerField("customize_advanced", self._customize_checkbox)
-        mode_card = self._build_card()
-        mode_card_layout = qt_widgets.QVBoxLayout()
-        mode_card_layout.setContentsMargins(20, 18, 20, 20)
-        mode_card_layout.setSpacing(12)
-        mode_card_layout.addWidget(mode_label)
-        mode_card_layout.addWidget(self._customize_checkbox)
-        mode_card_layout.addStretch(1)
-        mode_card.setLayout(mode_card_layout)
-        mode_layout.addWidget(mode_card)
-        mode_layout.addStretch(1)
-        self._mode_page.setLayout(mode_layout)
 
         self._riva_page = validating_page()
         self._riva_page.setTitle("Riva endpoint")
@@ -601,16 +599,14 @@ class _OnboardingWizard:
         review_layout.addStretch(1)
         self._review_page.setLayout(review_layout)
 
-        self._wizard.setPage(0, self._api_key_page)
-        self._wizard.setPage(1, self._mode_page)
-        self._wizard.setPage(2, self._riva_page)
-        self._wizard.setPage(3, self._nemotron_page)
-        self._wizard.setPage(4, self._review_page)
-        self._wizard.setStartId(0)
+        self._wizard.setPage(_PAGE_BACKEND, self._api_key_page)
+        self._wizard.setPage(_PAGE_RIVA, self._riva_page)
+        self._wizard.setPage(_PAGE_CLEANUP, self._nemotron_page)
+        self._wizard.setPage(_PAGE_REVIEW, self._review_page)
 
-        self._mode_page.nextId = self._mode_next_id  # type: ignore[method-assign]
-        self._riva_page.nextId = self._riva_next_id  # type: ignore[method-assign]
-        self._nemotron_page.nextId = self._nem_next_id  # type: ignore[method-assign]
+        # Riva -> Cleanup -> Review is Qt's ascending-id default; only the
+        # backend page picks where the wizard goes.
+        self._api_key_page.nextId = self._backend_next_id  # type: ignore[method-assign]
         self._review_page.initializePage = self._init_review_page  # type: ignore[method-assign]
 
     def _build_card(self):
@@ -650,15 +646,15 @@ class _OnboardingWizard:
         box.setValue(float(value))
         return box
 
-    def _mode_next_id(self) -> int:
+    def _backend_next_id(self) -> int:
         if not self._customize_checkbox.isChecked():
-            return 4
+            return _PAGE_REVIEW
         # Skip the Riva page for local speech: it validates a cloud server and
         # function ID that a local-only setup will never contact, and blocks
         # Next when they are blank.
         if self._selected_backend() == STT_BACKEND_LOCAL:
-            return 3
-        return 2
+            return _PAGE_CLEANUP
+        return _PAGE_RIVA
 
     def _selected_backend(self) -> str:
         return normalize_stt_backend(self._backend_combo.currentData())
@@ -672,14 +668,6 @@ class _OnboardingWizard:
             "Enter an NVIDIA API key, or choose whisper.cpp (local) to transcribe "
             "offline without one."
         ]
-
-    @staticmethod
-    def _riva_next_id() -> int:
-        return 3
-
-    @staticmethod
-    def _nem_next_id() -> int:
-        return 4
 
     def _riva_problems(self) -> list[str]:
         server = self._riva_server_input.text().strip()
